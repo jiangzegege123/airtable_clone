@@ -78,12 +78,9 @@ export default function DashboardPage() {
                 <h3 className="mb-1 text-base font-medium text-gray-700 lg:text-lg">
                   No bases yet
                 </h3>
-                <p className="mb-4 text-sm text-gray-500 lg:text-base">
-                  Create your first base to get started
+                <p className="text-sm text-gray-500 lg:text-base">
+                  Create your first base using the Quick Actions below
                 </p>
-                <div className="px-4">
-                  <CreateBaseWrapper />
-                </div>
               </div>
             )}
           </div>

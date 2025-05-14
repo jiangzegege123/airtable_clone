@@ -11,9 +11,13 @@ const CreateBase = dynamic(() => import("./CreateBase"), { ssr: false });
 export default function CreateBaseWrapper() {
   const [showForm, setShowForm] = useState(false);
 
+  const handleCreateSuccess = () => {
+    setShowForm(false);
+  };
+
   return (
     <div>
-      {!showForm && (
+      {!showForm ? (
         <button
           className="flex items-center rounded-lg border border-gray-200 p-4 transition-shadow hover:shadow-md"
           onClick={() => setShowForm(true)}
@@ -23,9 +27,9 @@ export default function CreateBaseWrapper() {
           </div>
           <span className="font-medium">Create New Base</span>
         </button>
+      ) : (
+        <CreateBase onSuccess={handleCreateSuccess} />
       )}
-
-      {showForm && <CreateBase />}
     </div>
   );
 }
