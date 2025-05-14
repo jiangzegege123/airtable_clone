@@ -29,7 +29,7 @@ export function BaseCard({ base }: { base: Base }) {
         variant="ghost"
         size="icon"
         className="absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100"
-        onClick={() => deleteBase({ id: base.id })}
+        onClick={() => void deleteBase({ id: base.id })}
         disabled={isDeleting}
       >
         <X className="h-4 w-4 text-gray-500 hover:text-red-500" />
