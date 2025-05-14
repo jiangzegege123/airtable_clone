@@ -14,7 +14,7 @@ export function BaseCard({ base }: { base: Base }) {
       setIsDeleting(true);
     },
     onSuccess: () => {
-      utils.base.list.invalidate();
+      void utils.base.list.invalidate();
     },
     onError: (error) => {
       setIsDeleting(false);
