@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut } from "lucide-react";
+import { LogOut, User } from "lucide-react";
 import { signOut } from "next-auth/react";
 import type { Session } from "next-auth";
 import Image from "next/image";
@@ -21,13 +21,19 @@ export function UserButton({ user }: UserButtonProps) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="h-8 w-8 rounded-full">
-          <Image
-            src={user.image ?? ""}
-            alt={user.name ?? ""}
-            width={32}
-            height={32}
-            className="h-8 w-8 rounded-full"
-          />
+          {user.image ? (
+            <Image
+              src={user.image}
+              alt={user.name ?? "User avatar"}
+              width={32}
+              height={32}
+              className="h-8 w-8 rounded-full"
+            />
+          ) : (
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-100 text-purple-600">
+              <User className="h-4 w-4" />
+            </div>
+          )}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
