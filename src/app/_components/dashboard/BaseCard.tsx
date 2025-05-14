@@ -19,7 +19,7 @@ export function BaseCard({ base }: { base: Base }) {
     onError: (error) => {
       setIsDeleting(false);
       console.error("Failed to delete base:", error);
-      // 这里可以添加一个 toast 提示
+      // TODO: Add toast notification for error feedback
     },
   });
 

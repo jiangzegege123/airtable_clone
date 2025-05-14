@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Plus } from "lucide-react";
 import dynamic from "next/dynamic";
 
-// 动态导入 CreateBase 组件（客户端渲染）
+// Dynamically import CreateBase component (client-side rendering)
 const CreateBase = dynamic(() => import("./CreateBase"), { ssr: false });
 
 export default function CreateBaseWrapper() {

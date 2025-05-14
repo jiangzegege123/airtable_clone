@@ -33,7 +33,7 @@ export const baseRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      // 首先检查 base 是否存在且属于当前用户
+      // Check if base exists and belongs to current user
       const base = await ctx.db.base.findUnique({
         where: { id: input.id },
         select: { ownerId: true },
@@ -53,7 +53,7 @@ export const baseRouter = createTRPCRouter({
         });
       }
 
-      // 删除 base
+      // Delete the base
       await ctx.db.base.delete({
         where: { id: input.id },
       });
