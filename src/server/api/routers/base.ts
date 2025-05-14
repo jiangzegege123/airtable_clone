@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 import type { Base } from "@prisma/client";
+import { TRPCError } from "@trpc/server";
 
 export const baseRouter = createTRPCRouter({
   create: protectedProcedure
@@ -28,4 +29,35 @@ export const baseRouter = createTRPCRouter({
       },
     });
   }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // 首先检查 base 是否存在且属于当前用户
+      const base = await ctx.db.base.findUnique({
+        where: { id: input.id },
+        select: { ownerId: true },
+      });
+
+      if (!base) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Base not found",
+        });
+      }
+
+      if (base.ownerId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have permission to delete this base",
+        });
+      }
+
+      // 删除 base
+      await ctx.db.base.delete({
+        where: { id: input.id },
+      });
+
+      return { success: true };
+    }),
 });
