@@ -1,87 +1,149 @@
 "use client";
 
-import { redirect, useParams } from "next/navigation";
+import { redirect, useParams, useRouter } from "next/navigation";
 import { api } from "~/trpc/react";
 import { useEffect, useState } from "react";
 import { Button } from "~/components/ui/button";
-import { Plus, Table as TableIcon, X, Loader2 } from "lucide-react";
+import { Plus, Search, Filter, SortAsc, Grid, Database } from "lucide-react";
 import { Input } from "~/components/ui/input";
-import Link from "next/link";
+import { TableView } from "~/components/table/TableView";
+import type { Column } from "~/components/table/TableView";
+import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import { useToast } from "~/components/ui/use-toast";
+import { Navbar } from "~/components/layout/Navbar";
+import { TableTab } from "~/components/ui/table/table-tab";
+
+interface TableRow {
+  id: string;
+  [key: string]: string | number | null;
+}
+
+const initialColumns: Column[] = [
+  { id: "approvalId", name: "Approval ID", type: "text", width: 180 },
+  { id: "tasks", name: "Tasks", type: "text", width: 240 },
+];
+
+const sampleRows: TableRow[] = [
+  { id: "1", approvalId: "APR001", tasks: "Brainstorming Session" },
+  { id: "2", approvalId: "APR002", tasks: "Draft Social Media Posts" },
+  { id: "3", approvalId: "APR003", tasks: "Video Editing" },
+  { id: "4", approvalId: "APR004", tasks: "Content Calendar Review" },
+  { id: "5", approvalId: "APR005", tasks: "" },
+];
 
 export default function BasePage() {
   const params = useParams();
+  const router = useRouter();
   const baseId = params.id as string;
+  const { toast } = useToast();
+  const utils = api.useUtils();
 
   // Fetch session and base data
-  const { data: session } = api.auth.getSession.useQuery();
+  const { data: session, isLoading: isLoadingSession } =
+    api.auth.getSession.useQuery();
   const {
     data: tables = [],
-    isLoading,
-    error,
+    isLoading: isLoadingTables,
+    error: tablesError,
   } = api.table.list.useQuery(
     { baseId },
     {
       enabled: !!session?.user,
-      retry: 1,
-      onError: (error) => {
-        console.error("Failed to fetch tables:", error);
-      },
+      retry: false,
     },
   );
 
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [tableName, setTableName] = useState("");
+  const createTable = api.table.create.useMutation({
+    onSuccess: () => {
+      toast({
+        title: "Table created successfully",
+        duration: 2000,
+      });
+      // Refresh tables list
+      void utils.table.list.invalidate({ baseId });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error creating table",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
-  const utils = api.useUtils();
-  const { mutate: createTable, isLoading: isCreating } =
-    api.table.create.useMutation({
-      onSuccess: () => {
-        setTableName("");
-        setShowCreateForm(false);
-        void utils.table.list.invalidate({ baseId });
-      },
-      onError: (error) => {
-        console.error("Failed to create table:", error);
-      },
-    });
+  const deleteTable = api.table.delete.useMutation({
+    onSuccess: () => {
+      toast({
+        title: "Table deleted successfully",
+        duration: 2000,
+      });
+      // Refresh tables list
+      void utils.table.list.invalidate({ baseId });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error deleting table",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
-  const { mutate: deleteTable, isLoading: isDeleting } =
-    api.table.delete.useMutation({
-      onSuccess: () => {
-        void utils.table.list.invalidate({ baseId });
-      },
-      onError: (error) => {
-        console.error("Failed to delete table:", error);
-      },
-    });
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [rows, setRows] = useState<TableRow[]>(sampleRows);
+  const [columns, setColumns] = useState<Column[]>(initialColumns);
+
+  // Set initial selected table and update URL
+  useEffect(() => {
+    const firstTable = tables[0];
+    if (tables.length > 0 && firstTable && !selectedTable) {
+      setSelectedTable(firstTable.id);
+      router.replace(`/base/${baseId}/${firstTable.id}`);
+    }
+  }, [tables, selectedTable, baseId, router]);
+
+  // Handle table selection
+  const handleTableSelect = (tableId: string) => {
+    setSelectedTable(tableId);
+    router.replace(`/base/${baseId}/${tableId}`);
+  };
 
   useEffect(() => {
-    if (!session?.user) {
+    if (!isLoadingSession && !session?.user) {
       redirect("/");
     }
-  }, [session]);
+  }, [session, isLoadingSession]);
+
+  if (isLoadingSession) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-white">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600" />
+        <p className="mt-2 text-sm text-gray-500">Loading...</p>
+      </div>
+    );
+  }
 
   if (!session?.user) {
     return null;
   }
 
-  if (isLoading) {
+  if (isLoadingTables) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-white">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600" />
         <p className="mt-2 text-sm text-gray-500">Loading tables...</p>
       </div>
     );
   }
 
-  if (error) {
+  if (tablesError) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-white">
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-center">
           <h3 className="text-lg font-medium text-red-800">
             Error loading tables
           </h3>
-          <p className="mt-1 text-sm text-red-600">{error.message}</p>
+          <p className="mt-1 text-sm text-red-600">{tablesError.message}</p>
           <Button
             variant="outline"
             size="sm"
@@ -95,123 +157,140 @@ export default function BasePage() {
     );
   }
 
+  const handleAddRow = () => {
+    const newRow: TableRow = {
+      id: (rows.length + 1).toString(),
+      name: "",
+      age: null,
+    };
+    setRows([...rows, newRow]);
+  };
+
+  const handleAddColumn = () => {
+    const newColumnId = `column${columns.length + 1}`;
+    const newColumn: Column = {
+      id: newColumnId,
+      name: `Column ${columns.length + 1}`,
+      type: "text",
+    };
+    setColumns((currentColumns) => [...currentColumns, newColumn]);
+
+    // Add the new column to existing rows with null values
+    setRows((currentRows) =>
+      currentRows.map((row) => ({
+        ...row,
+        [newColumnId]: null,
+      })),
+    );
+  };
+
+  const handleUpdateCell = (
+    rowId: string,
+    columnId: string,
+    value: string | number | null,
+  ) => {
+    setRows((currentRows) =>
+      currentRows.map((row) =>
+        row.id === rowId
+          ? {
+              ...row,
+              [columnId]: value,
+            }
+          : row,
+      ),
+    );
+  };
+
+  const handleAddTable = () => {
+    const name = prompt("Enter table name:");
+    if (!name) return;
+
+    void createTable.mutate({
+      baseId,
+      name,
+    });
+  };
+
+  const handleDeleteTable = (tableId: string) => {
+    if (
+      confirm(
+        "Are you sure you want to delete this table? This action cannot be undone.",
+      )
+    ) {
+      deleteTable.mutate({ id: tableId, baseId });
+    }
+  };
+
   return (
     <div className="flex min-h-screen flex-col bg-white">
-      <header className="flex h-14 items-center justify-between border-b px-4 lg:px-6">
-        <div className="flex items-center gap-4">
-          <Link href="/dashboard">
-            <Button variant="ghost" size="sm">
-              ← Back to Dashboard
-            </Button>
-          </Link>
-          <h1 className="text-xl font-semibold">Tables</h1>
-        </div>
-      </header>
+      <Navbar showBaseInfo baseId={baseId} />
 
-      <div className="flex-1 p-4 lg:p-8">
-        <div className="mb-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-gray-500">Your Tables</h3>
-            {!showCreateForm && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowCreateForm(true)}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                New Table
-              </Button>
-            )}
-          </div>
-
-          {showCreateForm && (
-            <div className="flex items-center gap-2">
-              <Input
-                placeholder="Enter table name"
-                value={tableName}
-                onChange={(e) => setTableName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && tableName.trim() !== "") {
-                    void createTable({ name: tableName, baseId });
-                  } else if (e.key === "Escape") {
-                    setShowCreateForm(false);
-                  }
-                }}
-                autoFocus
-                disabled={isCreating}
-              />
-              <Button
-                onClick={() => {
-                  void createTable({ name: tableName, baseId });
-                }}
-                disabled={tableName.trim() === "" || isCreating}
-              >
-                {isCreating ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Plus className="mr-2 h-4 w-4" />
-                )}
-                Create Table
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowCreateForm(false)}
-                disabled={isCreating}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          )}
-
-          {tables.length > 0 ? (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/* Table Tabs */}
+      <div className="bg-[#59427F]">
+        <div className="flex h-12 items-center gap-2 px-4">
+          <Tabs
+            value={selectedTable ?? undefined}
+            onValueChange={handleTableSelect}
+            className="h-full flex-1"
+          >
+            <TabsList className="h-full bg-transparent">
               {tables.map((table) => (
-                <div
+                <TableTab
                   key={table.id}
-                  className="group relative rounded-lg border border-gray-200 p-4 transition-shadow hover:shadow-md"
-                >
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100"
-                    onClick={() => {
-                      void deleteTable({ id: table.id, baseId });
-                    }}
-                    disabled={isDeleting}
-                  >
-                    <X className="h-4 w-4 text-gray-500 hover:text-red-500" />
-                  </Button>
-
-                  <div className="flex items-center">
-                    <div className="mr-4 flex h-12 w-12 items-center justify-center rounded-md bg-purple-600 text-white">
-                      <TableIcon className="h-6 w-6" />
-                    </div>
-                    <div>
-                      <h4 className="text-base font-medium">
-                        {table.name || "Untitled Table"}
-                      </h4>
-                      <p className="text-sm text-gray-500">
-                        Last updated:{" "}
-                        {new Date(table.updatedAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                  id={table.id}
+                  name={table.name}
+                  onDelete={handleDeleteTable}
+                />
               ))}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-gray-200 py-6 text-center lg:py-8">
-              <TableIcon className="mx-auto mb-3 h-10 w-10 text-gray-400 lg:h-12 lg:w-12" />
-              <h3 className="mb-1 text-base font-medium text-gray-700 lg:text-lg">
-                No tables yet
-              </h3>
-              <p className="text-sm text-gray-500 lg:text-base">
-                Create your first table using the button above
-              </p>
-            </div>
-          )}
+            </TabsList>
+          </Tabs>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2 text-white hover:bg-[#7456A5] hover:text-white"
+            onClick={handleAddTable}
+          >
+            <Plus className="h-4 w-4" />
+            Add table
+          </Button>
         </div>
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex h-12 items-center justify-between gap-4 border-b px-4 lg:px-6">
+        <Button variant="ghost" size="sm" className="flex items-center gap-1">
+          <Grid className="h-4 w-4" />
+          Views
+        </Button>
+        <Button variant="ghost" size="sm" className="flex items-center gap-1">
+          <Filter className="h-4 w-4" />
+          Filter
+        </Button>
+        <Button variant="ghost" size="sm" className="flex items-center gap-1">
+          <SortAsc className="h-4 w-4" />
+          Sort
+        </Button>
+
+        {/* Search */}
+        <div className="flex-1">
+          <div className="relative w-full max-w-md">
+            <Search className="absolute top-1/2 left-2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <Input className="pl-8" placeholder="Search..." type="search" />
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      <div className="flex-1">
+        {selectedTable && (
+          <TableView
+            columns={columns}
+            rows={rows}
+            onAddRow={handleAddRow}
+            onAddColumn={handleAddColumn}
+            onUpdateCell={handleUpdateCell}
+          />
+        )}
       </div>
     </div>
   );

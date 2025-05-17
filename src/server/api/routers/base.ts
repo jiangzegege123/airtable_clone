@@ -30,6 +30,30 @@ export const baseRouter = createTRPCRouter({
     });
   }),
 
+  getById: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }): Promise<Base | null> => {
+      const base = await ctx.db.base.findUnique({
+        where: { id: input.id },
+      });
+
+      if (!base) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Base not found",
+        });
+      }
+
+      if (base.ownerId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have permission to access this base",
+        });
+      }
+
+      return base;
+    }),
+
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
