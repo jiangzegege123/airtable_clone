@@ -8,8 +8,8 @@ import type { Base } from "@prisma/client";
 import CreateBaseWrapper from "../_components/dashboard/CreateBaseWrapper";
 import { api } from "~/trpc/react";
 import { useEffect, useState } from "react";
-import { UserButton } from "../_components/auth/UserButton";
 import { Button } from "~/components/ui/button";
+import { UserAvatar } from "~/components/layout/UserAvatar";
 
 export default function DashboardPage() {
   const { data: session } = api.auth.getSession.useQuery();
@@ -42,7 +42,7 @@ export default function DashboardPage() {
           </Button>
           <h1 className="text-xl font-semibold">Airtable Clone</h1>
         </div>
-        <UserButton user={session.user} />
+        <UserAvatar user={session.user} />
       </header>
 
       <div className="flex flex-1">

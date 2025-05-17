@@ -2,6 +2,7 @@ import { Button } from "~/components/ui/button";
 import Link from "next/link";
 import { CloudIcon } from "~/components/icons/CloudIcon";
 import { api } from "~/trpc/react";
+import { UserAvatar } from "./UserAvatar";
 
 interface NavbarProps {
   showBaseInfo?: boolean;
@@ -17,6 +18,9 @@ export function Navbar({ showBaseInfo, baseId }: NavbarProps) {
       staleTime: Infinity,
     },
   );
+
+  // Fetch session to get user data
+  const { data: session } = api.auth.getSession.useQuery();
 
   const baseName = baseData?.name ?? "Untitled Base";
 
@@ -35,6 +39,13 @@ export function Navbar({ showBaseInfo, baseId }: NavbarProps) {
           {showBaseInfo ? baseName : "Airtable Clone"}
         </h1>
       </div>
+
+      {/* User avatar */}
+      {session?.user && (
+        <div>
+          <UserAvatar user={session.user} />
+        </div>
+      )}
     </header>
   );
 }

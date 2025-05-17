@@ -84,6 +84,7 @@ model Field {
   order   Int
   tableId String
   table   Table @relation(fields: [tableId], references: [id])
+  cellValues CellValue[]
 }
 
 model Record {
@@ -91,6 +92,7 @@ model Record {
   tableId String
   createdAt DateTime @default(now())
   table   Table @relation(fields: [tableId], references: [id])
+  cellValues CellValue[]
 }
 
 model VerificationToken {
@@ -99,4 +101,16 @@ model VerificationToken {
     expires    DateTime
 
     @@unique([identifier, token])
+}
+
+model CellValue {
+  id       String  @id @default(cuid())
+  value    String?
+  recordId String
+  fieldId  String
+  
+  record   Record  @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  field    Field   @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  
+  @@unique([recordId, fieldId])
 }

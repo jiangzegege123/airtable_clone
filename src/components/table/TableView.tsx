@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
@@ -49,6 +49,128 @@ export function TableView({
     (total, col) => total + (col.width ?? 200),
     0,
   );
+
+  // Keep track of the currently focused cell
+  const [focusedCell, setFocusedCell] = useState<{
+    rowIndex: number;
+    columnIndex: number;
+  } | null>(null);
+
+  // Refs for inputs to programmatically focus them
+  const inputRefs = useRef<Record<string, Record<string, HTMLInputElement>>>(
+    {},
+  );
+
+  // Handle keyboard navigation
+  const handleKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    rowIndex: number,
+    columnIndex: number,
+  ) => {
+    const isLastColumn = columnIndex === columns.length - 1;
+    const isFirstColumn = columnIndex === 0;
+    const isLastRow = rowIndex === rows.length - 1;
+    const isFirstRow = rowIndex === 0;
+
+    // Tab navigation: Move right or to the next row
+    if (e.key === "Tab" && !e.shiftKey) {
+      e.preventDefault();
+      if (isLastColumn) {
+        if (!isLastRow) {
+          // Move to first column of next row
+          focusCell(rowIndex + 1, 0);
+        } else {
+          // If it's the last cell, add a new row and focus its first cell
+          onAddRow();
+          // Wait for the new row to be added to the state
+          setTimeout(() => {
+            if (rows.length > rowIndex) {
+              focusCell(rows.length, 0);
+            }
+          }, 100);
+        }
+      } else {
+        // Move to next column in same row
+        focusCell(rowIndex, columnIndex + 1);
+      }
+    }
+    // Shift+Tab navigation: Move left or to the previous row
+    else if (e.key === "Tab" && e.shiftKey) {
+      e.preventDefault();
+      if (isFirstColumn) {
+        if (!isFirstRow) {
+          // Move to last column of previous row
+          focusCell(rowIndex - 1, columns.length - 1);
+        }
+      } else {
+        // Move to previous column in same row
+        focusCell(rowIndex, columnIndex - 1);
+      }
+    }
+    // Enter key: Move down or to the first cell of next row
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      if (!isLastRow) {
+        focusCell(rowIndex + 1, columnIndex);
+      } else {
+        // If it's the last row, add a new row and focus the cell in the same column
+        onAddRow();
+        setTimeout(() => {
+          if (rows.length > rowIndex) {
+            focusCell(rows.length, columnIndex);
+          }
+        }, 100);
+      }
+    }
+    // Arrow keys for navigation (optional)
+    else if (e.key === "ArrowDown" && !isLastRow) {
+      e.preventDefault();
+      focusCell(rowIndex + 1, columnIndex);
+    } else if (e.key === "ArrowUp" && !isFirstRow) {
+      e.preventDefault();
+      focusCell(rowIndex - 1, columnIndex);
+    } else if (
+      e.key === "ArrowRight" &&
+      !isLastColumn &&
+      e.currentTarget.selectionStart === e.currentTarget.value.length
+    ) {
+      e.preventDefault();
+      focusCell(rowIndex, columnIndex + 1);
+    } else if (
+      e.key === "ArrowLeft" &&
+      !isFirstColumn &&
+      e.currentTarget.selectionStart === 0
+    ) {
+      e.preventDefault();
+      focusCell(rowIndex, columnIndex - 1);
+    }
+  };
+
+  // Focus a specific cell
+  const focusCell = (rowIndex: number, columnIndex: number) => {
+    if (
+      rowIndex >= 0 &&
+      rowIndex < rows.length &&
+      columnIndex >= 0 &&
+      columnIndex < columns.length
+    ) {
+      const rowId = rows[rowIndex]?.id;
+      const columnId = columns[columnIndex]?.id;
+
+      if (!rowId || !columnId) return;
+
+      setFocusedCell({ rowIndex, columnIndex });
+
+      // Use setTimeout to ensure the focus happens after the state update
+      setTimeout(() => {
+        const input = inputRefs.current[rowId]?.[columnId];
+        if (input) {
+          input.focus();
+          input.select();
+        }
+      }, 0);
+    }
+  };
 
   return (
     <div className="overflow-auto">
@@ -101,15 +223,31 @@ export function TableView({
                   {rowIndex + 1}
                 </td>
                 {/* Data cells */}
-                {columns.map((column) => (
+                {columns.map((column, columnIndex) => (
                   <td
                     key={column.id}
-                    className="border-r border-b border-gray-200 p-2 last:border-r-0"
+                    className={cn(
+                      "border-r border-b border-gray-200 p-2 last:border-r-0",
+                      focusedCell?.rowIndex === rowIndex &&
+                        focusedCell?.columnIndex === columnIndex &&
+                        "bg-blue-50",
+                    )}
                     style={{
                       width: column.width ? `${column.width}px` : "200px",
                     }}
+                    onClick={() => focusCell(rowIndex, columnIndex)}
                   >
                     <input
+                      ref={(el) => {
+                        if (el) {
+                          // Ensure the row object exists for this ref
+                          if (!inputRefs.current[row.id]) {
+                            inputRefs.current[row.id] = {};
+                          }
+                          // Now we can safely assign the element
+                          inputRefs.current[row.id]![column.id] = el;
+                        }
+                      }}
                       type={column.type === "number" ? "number" : "text"}
                       value={row[column.id] ?? ""}
                       onChange={(e) => {
@@ -124,6 +262,8 @@ export function TableView({
                               : value,
                         );
                       }}
+                      onFocus={() => setFocusedCell({ rowIndex, columnIndex })}
+                      onKeyDown={(e) => handleKeyDown(e, rowIndex, columnIndex)}
                       className="w-full border-none bg-transparent p-0 focus:ring-0 focus:outline-none"
                     />
                   </td>
