@@ -241,9 +241,7 @@ export function TableView({
                       ref={(el) => {
                         if (el) {
                           // Ensure the row object exists for this ref
-                          if (!inputRefs.current[row.id]) {
-                            inputRefs.current[row.id] = {};
-                          }
+                          inputRefs.current[row.id] ??= {};
                           // Now we can safely assign the element
                           inputRefs.current[row.id]![column.id] = el;
                         }
