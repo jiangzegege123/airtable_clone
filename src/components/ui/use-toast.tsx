@@ -6,7 +6,7 @@ export interface ToastOptions {
   title: string;
   description?: string;
   duration?: number;
-  variant?: "default" | "destructive";
+  variant?: "default" | "destructive" | "success";
 }
 
 export interface Toast extends ToastOptions {
@@ -15,6 +15,7 @@ export interface Toast extends ToastOptions {
 
 interface ToastContextValue {
   toast: (options: ToastOptions) => void;
+  dismiss: (id: string) => void;
   toasts: Toast[];
 }
 
@@ -37,19 +38,28 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
     setToasts((currentToasts) => [...currentToasts, newToast]);
 
-    setTimeout(() => {
-      setToasts((currentToasts) =>
-        currentToasts.filter((toast) => toast.id !== id),
-      );
-    }, newToast.duration);
+    if (newToast.duration !== Infinity) {
+      setTimeout(() => {
+        setToasts((currentToasts) =>
+          currentToasts.filter((toast) => toast.id !== id),
+        );
+      }, newToast.duration);
+    }
+  }, []);
+
+  const dismiss = React.useCallback((id: string) => {
+    setToasts((currentToasts) =>
+      currentToasts.filter((toast) => toast.id !== id),
+    );
   }, []);
 
   const value = React.useMemo(
     () => ({
       toast,
+      dismiss,
       toasts,
     }),
-    [toast, toasts],
+    [toast, dismiss, toasts],
   );
 
   return (

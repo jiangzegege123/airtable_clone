@@ -62,6 +62,7 @@ export default function TablePage() {
       toast({
         title: "Table created successfully",
         duration: 2000,
+        variant: "success",
       });
       // Refresh tables list
       void utils.table.list.invalidate({ baseId });
@@ -80,6 +81,7 @@ export default function TablePage() {
       toast({
         title: "Table deleted successfully",
         duration: 2000,
+        variant: "success",
       });
       // Refresh tables list
       void utils.table.list.invalidate({ baseId });
@@ -233,7 +235,6 @@ export default function TablePage() {
       );
     } finally {
       setIsLoadingMore(false);
-      // Release the loading lock with slight delay
       setTimeout(() => {
         isLoadingLockRef.current = false;
       }, 100);
@@ -658,6 +659,10 @@ export default function TablePage() {
 
   // Set up cell update mutation
   const updateCellMutation = api.table.updateCell.useMutation({
+    onSuccess: () => {
+      // cell 更新后强制刷新当前表数据
+      void utils.table.getById.invalidate({ id: tableId });
+    },
     onError: (error) => {
       toast({
         title: "Error updating cell",
@@ -673,6 +678,7 @@ export default function TablePage() {
       toast({
         title: "Row added successfully",
         duration: 2000,
+        variant: "success",
       });
 
       // 只处理行ID的更新，保留前端已经生成的假数据内容
@@ -779,6 +785,7 @@ export default function TablePage() {
       toast({
         title: "Column added successfully",
         duration: 2000,
+        variant: "success",
       });
 
       if (data?.field) {
@@ -898,6 +905,43 @@ export default function TablePage() {
       router.replace("/");
     }
   }, [session, isLoadingSession, router]);
+
+  // 主动 checkIfNeedMoreData，rows/columns/totalCount/initialized/hasMore 变化时
+  useEffect(() => {
+    if (!(initialized && hasMore)) return;
+    window.requestAnimationFrame(() => {
+      setTimeout(() => {
+        const tableContainer = document.querySelector(".table-container");
+        if (tableContainer) {
+          const { scrollHeight, clientHeight } = tableContainer;
+          if (scrollHeight <= clientHeight + 10) {
+            // 内容不足一屏，自动加载
+            void loadMoreData();
+          } else {
+            checkIfNeedMoreData();
+          }
+        }
+      }, 100);
+    });
+  }, [
+    rows,
+    columns,
+    totalCount,
+    initialized,
+    hasMore,
+    loadMoreData,
+    checkIfNeedMoreData,
+  ]);
+
+  // 定时器 backup 检查，每 500ms 检查一次
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (hasMore && !isLoadingMore && !isLoadingLockRef.current) {
+        checkIfNeedMoreData();
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, [hasMore, isLoadingMore, checkIfNeedMoreData]);
 
   if (isLoadingSession) {
     return (
