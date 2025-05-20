@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { api } from "~/trpc/react";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { Button } from "~/components/ui/button";
 import { Plus, Search, Filter, SortAsc, Grid, Database } from "lucide-react";
 import { Input } from "~/components/ui/input";
@@ -13,6 +13,15 @@ import { useToast } from "~/components/ui/use-toast";
 import { Navbar } from "~/components/layout/Navbar";
 import { TableTab } from "~/components/ui/table/table-tab";
 import { faker } from "@faker-js/faker";
+import { ViewManager } from "~/components/table/ViewManager";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
+import type { TableView as TableViewType } from "~/types/table";
 
 interface TableRow {
   id: string;
@@ -36,11 +45,13 @@ interface TableData {
 
 export default function TablePage() {
   const params = useParams();
+  const baseId = params?.id as string;
+  const tableId = params?.tableId as string;
+
   const router = useRouter();
-  const baseId = params.id as string;
-  const tableId = params.tableId as string;
   const { toast } = useToast();
   const utils = api.useUtils();
+  const [currentView, setCurrentView] = useState<TableViewType | null>(null);
 
   // Fetch session and base data
   const { data: session, isLoading: isLoadingSession } =
@@ -102,6 +113,7 @@ export default function TablePage() {
   const [rows, setRows] = useState<TableRow[]>([]);
   const [columns, setColumns] = useState<Column[]>([]);
   const [initialized, setInitialized] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
 
   // Add cache reference
   const tableCache = useRef<
@@ -172,6 +184,22 @@ export default function TablePage() {
         enabled: !tableCache.current[tableId] && !!tableId,
       },
     );
+
+  // Filter rows based on search term
+  const filteredRows = useMemo(() => {
+    if (!searchTerm.trim()) return rows;
+
+    const searchLower = searchTerm.toLowerCase();
+    return rows.filter((row) => {
+      // Search through all cell values in the row
+      return Object.entries(row).some(([key, value]) => {
+        // Skip the id field and null values
+        if (key === "id" || value === null) return false;
+        // Convert value to string and search
+        return String(value).toLowerCase().includes(searchLower);
+      });
+    });
+  }, [rows, searchTerm]);
 
   // Update row data, merge newly loaded data
   const loadMoreData = useCallback(async () => {
@@ -969,6 +997,141 @@ export default function TablePage() {
     add100kRowsMutation.mutate({ tableId });
   };
 
+  // Query for views
+  const { data: views = [] } = api.view.list.useQuery(
+    { tableId },
+    { enabled: !!tableId },
+  );
+
+  // Mutations for view management
+  const createViewMutation = api.view.create.useMutation({
+    onSuccess: () => {
+      toast({
+        title: "View created successfully",
+        duration: 2000,
+        variant: "success",
+      });
+      void utils.view.list.invalidate({ tableId });
+    },
+  });
+
+  const updateViewMutation = api.view.update.useMutation({
+    onSuccess: () => {
+      toast({
+        title: "View updated successfully",
+        duration: 2000,
+        variant: "success",
+      });
+      void utils.view.list.invalidate({ tableId });
+    },
+  });
+
+  // Handle view operations
+  const handleSaveView = (view: Omit<TableViewType, "id">) => {
+    createViewMutation.mutate({
+      ...view,
+      tableId,
+    });
+  };
+
+  const handleUpdateView = (view: TableViewType) => {
+    updateViewMutation.mutate({
+      id: view.id,
+      name: view.name,
+      filters: view.filters,
+      sorts: view.sorts,
+      hiddenColumns: view.hiddenColumns,
+    });
+  };
+
+  // Apply view filters and sorts to rows
+  const filteredAndSortedRows = useMemo(() => {
+    if (!currentView) return rows;
+
+    let result = [...rows];
+
+    // Apply filters
+    if (currentView.filters.length > 0) {
+      result = result.filter((row) => {
+        return currentView.filters.every((filter) => {
+          const column = columns.find((col) => col.id === filter.columnId);
+          if (!column) return true;
+
+          const value = row[filter.columnId];
+
+          switch (filter.operator) {
+            case "isEmpty":
+              return !value;
+            case "isNotEmpty":
+              return !!value;
+            case "contains":
+              return (
+                typeof value === "string" &&
+                value
+                  .toLowerCase()
+                  .includes((filter.value as string).toLowerCase())
+              );
+            case "notContains":
+              return (
+                typeof value === "string" &&
+                !value
+                  .toLowerCase()
+                  .includes((filter.value as string).toLowerCase())
+              );
+            case "equals":
+              return value === filter.value;
+            case "gt":
+              return (
+                typeof value === "number" && value > (filter.value as number)
+              );
+            case "lt":
+              return (
+                typeof value === "number" && value < (filter.value as number)
+              );
+            default:
+              return true;
+          }
+        });
+      });
+    }
+
+    // Apply sorts
+    if (currentView.sorts.length > 0) {
+      result.sort((a, b) => {
+        for (const sort of currentView.sorts) {
+          const column = columns.find((col) => col.id === sort.columnId);
+          if (!column) continue;
+
+          const aValue = a[sort.columnId];
+          const bValue = b[sort.columnId];
+
+          if (aValue === bValue) continue;
+
+          if (column.type === "number") {
+            const aNum = Number(aValue);
+            const bNum = Number(bValue);
+            return sort.direction === "asc" ? aNum - bNum : bNum - aNum;
+          } else {
+            const aStr = String(aValue ?? "");
+            const bStr = String(bValue ?? "");
+            return sort.direction === "asc"
+              ? aStr.localeCompare(bStr)
+              : bStr.localeCompare(aStr);
+          }
+        }
+        return 0;
+      });
+    }
+
+    return result;
+  }, [rows, columns, currentView]);
+
+  // Filter visible columns
+  const visibleColumns = useMemo(() => {
+    if (!currentView?.hiddenColumns) return columns;
+    return columns.filter((col) => !currentView.hiddenColumns.includes(col.id));
+  }, [columns, currentView?.hiddenColumns]);
+
   if (isLoadingSession) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-white">
@@ -1204,7 +1367,13 @@ export default function TablePage() {
         <div className="flex-1">
           <div className="relative w-full max-w-md">
             <Search className="absolute top-1/2 left-2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <Input className="pl-8" placeholder="Search..." type="search" />
+            <Input
+              className="pl-8"
+              placeholder="Search in all cells..."
+              type="search"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
         </div>
       </div>
@@ -1220,14 +1389,49 @@ export default function TablePage() {
             className="table-container h-full overflow-auto overscroll-none"
             style={{
               maxHeight: "calc(100vh - 160px)",
-              overscrollBehavior: "contain", // Prevent scroll chaining
-              WebkitOverflowScrolling: "touch", // Improve scroll on iOS
+              overscrollBehavior: "contain",
+              WebkitOverflowScrolling: "touch",
             }}
-            data-table-id={tableId} // Add data attribute for debugging and tracking table ID changes
+            data-table-id={tableId}
           >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ViewManager
+                  columns={columns}
+                  currentView={currentView}
+                  onSaveView={handleSaveView}
+                  onUpdateView={handleUpdateView}
+                />
+                {views.length > 0 && (
+                  <Select
+                    value={currentView?.id ?? "default"}
+                    onValueChange={(viewId: string) => {
+                      if (viewId === "default") {
+                        setCurrentView(null);
+                        return;
+                      }
+                      const view = views.find((v) => v.id === viewId);
+                      setCurrentView(view ?? null);
+                    }}
+                  >
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Select a view" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">Default View</SelectItem>
+                      {views.map((view: TableViewType) => (
+                        <SelectItem key={view.id} value={view.id}>
+                          {view.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </div>
             <TableView
-              columns={columns}
-              rows={rows}
+              columns={visibleColumns}
+              rows={filteredAndSortedRows}
               onAddRow={handleAddRow}
               onAddColumn={handleAddColumn}
               onUpdateCell={handleUpdateCell}

@@ -54,6 +54,7 @@ model User {
   sessions      Session[]
 
   bases         Base[]
+  views         View[]
 }
 model Base {
   id        String   @id @default(cuid())
@@ -72,9 +73,12 @@ model Table {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  base      Base     @relation(fields: [baseId], references: [id])
+  base      Base     @relation(fields: [baseId], references: [id], onDelete: Cascade)
   fields    Field[]
   records   Record[]
+  views     View[]
+
+  @@index([baseId])
 }
 
 model Field {
@@ -113,4 +117,22 @@ model CellValue {
   field    Field   @relation(fields: [fieldId], references: [id], onDelete: Cascade)
   
   @@unique([recordId, fieldId])
+}
+
+model View {
+  id            String   @id @default(cuid())
+  name          String
+  tableId       String
+  userId        String
+  filters       Json     // Store ColumnFilter[]
+  sorts         Json     // Store ColumnSort[]
+  hiddenColumns String[] // Store hidden column IDs
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  table         Table    @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tableId])
+  @@index([userId])
 }
