@@ -1103,6 +1103,12 @@ export default function TablePage() {
     });
   };
 
+  const handleAdd100kRows = () => {
+    const newRows = generateFakeRows(100000);
+    setRowsAndCache([...rows, ...newRows]);
+    setTotalCount(totalCount + 100000);
+  };
+
   const handleAddTable = () => {
     const name = prompt("Enter table name:");
     if (!name) return;
@@ -1206,6 +1212,7 @@ export default function TablePage() {
               onAddColumn={handleAddColumn}
               onUpdateCell={handleUpdateCell}
               showAddRowButton={!hasMore}
+              onAdd100kRows={handleAdd100kRows}
             />
             {/* 加载更多的提示和引用点 */}
             <div ref={tableBottomRef} className="py-2 text-center">
