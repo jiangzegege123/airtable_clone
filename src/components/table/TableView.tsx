@@ -2,6 +2,7 @@ import React, { useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 export interface Column {
   id: string;
@@ -26,6 +27,7 @@ export interface TableViewProps {
     value: string | number | null,
   ) => void;
   showAddRowButton?: boolean;
+  onAdd100kRows?: () => void;
 }
 
 export function TableView({
@@ -35,6 +37,7 @@ export function TableView({
   onAddColumn,
   onUpdateCell,
   showAddRowButton = true,
+  onAdd100kRows,
 }: TableViewProps) {
   // Row number column
   const rowNumberColumn = {
@@ -58,10 +61,18 @@ export function TableView({
     columnIndex: number;
   } | null>(null);
 
-  // Refs for inputs to programmatically focus them
-  const inputRefs = useRef<Record<string, Record<string, HTMLInputElement>>>(
-    {},
-  );
+  // Parent container ref for virtualization
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  // Set up virtualization with optimized settings for large datasets
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 41, // Height of each row
+    overscan: 10, // Increased overscan for smoother scrolling
+    paddingStart: 0,
+    paddingEnd: 0,
+  });
 
   // Handle keyboard navigation
   const handleKeyDown = (
@@ -69,253 +80,155 @@ export function TableView({
     rowIndex: number,
     columnIndex: number,
   ) => {
-    const isLastColumn = columnIndex === columns.length - 1;
-    const isFirstColumn = columnIndex === 0;
-    const isLastRow = rowIndex === rows.length - 1;
-    const isFirstRow = rowIndex === 0;
-
-    // Tab navigation: Move right or to the next row
-    if (e.key === "Tab" && !e.shiftKey) {
+    if (e.key === "Tab" || e.key === "Enter") {
       e.preventDefault();
-      if (isLastColumn) {
-        if (!isLastRow) {
-          // Move to first column of next row
-          focusCell(rowIndex + 1, 0);
-        } else {
-          // If it's the last cell, add a new row and focus its first cell
-          onAddRow();
-          // Wait for the new row to be added to the state
-          setTimeout(() => {
-            if (rows.length > rowIndex) {
-              focusCell(rows.length, 0);
-            }
-          }, 100);
+      const nextColumnIndex = e.shiftKey ? columnIndex - 1 : columnIndex + 1;
+      const nextRowIndex =
+        e.shiftKey && columnIndex === 0
+          ? rowIndex - 1
+          : !e.shiftKey && columnIndex === columns.length - 1
+            ? rowIndex + 1
+            : rowIndex;
+
+      if (nextRowIndex >= 0 && nextRowIndex < rows.length) {
+        if (nextColumnIndex >= 0 && nextColumnIndex < columns.length) {
+          setFocusedCell({
+            rowIndex: nextRowIndex,
+            columnIndex: nextColumnIndex,
+          });
         }
-      } else {
-        // Move to next column in same row
-        focusCell(rowIndex, columnIndex + 1);
       }
-    }
-    // Shift+Tab navigation: Move left or to the previous row
-    else if (e.key === "Tab" && e.shiftKey) {
-      e.preventDefault();
-      if (isFirstColumn) {
-        if (!isFirstRow) {
-          // Move to last column of previous row
-          focusCell(rowIndex - 1, columns.length - 1);
-        }
-      } else {
-        // Move to previous column in same row
-        focusCell(rowIndex, columnIndex - 1);
-      }
-    }
-    // Enter key: Move down or to the first cell of next row
-    else if (e.key === "Enter") {
-      e.preventDefault();
-      if (!isLastRow) {
-        focusCell(rowIndex + 1, columnIndex);
-      } else {
-        // If it's the last row, add a new row and focus the cell in the same column
-        onAddRow();
-        setTimeout(() => {
-          if (rows.length > rowIndex) {
-            focusCell(rows.length, columnIndex);
-          }
-        }, 100);
-      }
-    }
-    // Arrow keys for navigation (optional)
-    else if (e.key === "ArrowDown" && !isLastRow) {
-      e.preventDefault();
-      focusCell(rowIndex + 1, columnIndex);
-    } else if (e.key === "ArrowUp" && !isFirstRow) {
-      e.preventDefault();
-      focusCell(rowIndex - 1, columnIndex);
-    } else if (
-      e.key === "ArrowRight" &&
-      !isLastColumn &&
-      e.currentTarget.selectionStart === e.currentTarget.value.length
-    ) {
-      e.preventDefault();
-      focusCell(rowIndex, columnIndex + 1);
-    } else if (
-      e.key === "ArrowLeft" &&
-      !isFirstColumn &&
-      e.currentTarget.selectionStart === 0
-    ) {
-      e.preventDefault();
-      focusCell(rowIndex, columnIndex - 1);
-    }
-  };
-
-  // Focus a specific cell
-  const focusCell = (rowIndex: number, columnIndex: number) => {
-    if (
-      rowIndex >= 0 &&
-      rowIndex < rows.length &&
-      columnIndex >= 0 &&
-      columnIndex < columns.length
-    ) {
-      const rowId = rows[rowIndex]?.id;
-      const columnId = columns[columnIndex]?.id;
-
-      if (!rowId || !columnId) return;
-
-      setFocusedCell({ rowIndex, columnIndex });
-
-      // Use setTimeout to ensure the focus happens after the state update
-      setTimeout(() => {
-        const input = inputRefs.current[rowId]?.[columnId];
-        if (input) {
-          input.focus();
-          input.select();
-        }
-      }, 0);
     }
   };
 
   return (
-    <div className="w-full">
-      {/* 表格标题和添加列按钮 */}
-      <div className="mb-2 flex justify-between px-2">
-        <h2 className="text-lg font-medium text-gray-700">Data</h2>
-        <Button variant="outline" size="sm" onClick={onAddColumn}>
-          <Plus className="mr-1 h-4 w-4" /> Add Column
-        </Button>
-      </div>
+    <div className="flex flex-col gap-4">
+      {onAdd100kRows && (
+        <div className="flex justify-end">
+          <Button onClick={onAdd100kRows} variant="outline" size="sm">
+            Add 100k Rows
+          </Button>
+        </div>
+      )}
 
-      {/* 表格内容 */}
-      <div className="rounded-md border border-gray-200">
-        <div className="overflow-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-200">
-                {/* Row number header */}
-                <th
-                  className="w-10 border-r border-gray-200 bg-gray-50 p-2 text-center"
+      <div
+        ref={parentRef}
+        className="relative overflow-auto rounded-md border border-gray-200"
+        style={{ height: "calc(100vh - 200px)" }}
+      >
+        {/* Header */}
+        <div className="sticky top-0 z-10 bg-gray-50">
+          <div className="flex">
+            {/* Row number header */}
+            <div
+              className="sticky left-0 z-20 border-r border-b border-gray-200 bg-gray-50"
+              style={{ width: rowNumberColumn.width }}
+            >
+              <div className="h-10" />
+            </div>
+
+            {/* Column headers */}
+            <div className="flex min-w-0">
+              {columns.map((column) => (
+                <div
+                  key={column.id}
+                  className="border-r border-b border-gray-200 bg-gray-50 px-4 py-2 text-left text-sm font-medium text-gray-600"
+                  style={{ width: column.width ?? 200 }}
+                >
+                  {column.name}
+                </div>
+              ))}
+
+              {/* Add column button */}
+              <div className="flex w-10 items-center justify-center border-b border-gray-200 bg-gray-50">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  onClick={onAddColumn}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Virtualized rows */}
+        <div
+          style={{
+            height: `${rowVirtualizer.getTotalSize()}px`,
+            width: "100%",
+            position: "relative",
+          }}
+        >
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const row = rows[virtualRow.index];
+            if (!row) return null;
+
+            return (
+              <div
+                key={virtualRow.index}
+                data-index={virtualRow.index}
+                ref={rowVirtualizer.measureElement}
+                className={cn(
+                  "absolute top-0 left-0 flex w-full border-b border-gray-200",
+                  virtualRow.index % 2 === 0 ? "bg-white" : "bg-gray-50",
+                )}
+                style={{
+                  transform: `translateY(${virtualRow.start}px)`,
+                  height: `${virtualRow.size}px`,
+                }}
+              >
+                {/* Row number */}
+                <div
+                  className="sticky left-0 z-10 flex items-center justify-center border-r border-gray-200 bg-inherit"
                   style={{ width: rowNumberColumn.width }}
                 >
-                  {/* Empty header for row numbers */}
-                </th>
-                {/* Data columns headers */}
-                {columns.map((column) => (
-                  <th
-                    key={column.id}
-                    className="border-r border-gray-200 bg-gray-50 p-2 text-left text-sm font-medium text-gray-600 last:border-r-0"
-                    style={{
-                      width: column.width ? `${column.width}px` : "200px",
-                    }}
-                  >
-                    {column.name}
-                  </th>
-                ))}
-                <th className="w-10 border-b border-gray-200 bg-gray-50 p-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0"
-                    onClick={onAddColumn}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, rowIndex) => (
-                <tr
-                  key={`row-${row.id}-${rowIndex}`}
-                  className="hover:bg-gray-50/50"
-                >
-                  {/* Row number cell */}
-                  <td
-                    className="border-r border-b border-gray-200 p-2 text-center text-sm text-gray-500"
-                    style={{ width: rowNumberColumn.width }}
-                  >
-                    {rowIndex + 1}
-                  </td>
-                  {/* Data cells */}
+                  {virtualRow.index + 1}
+                </div>
+
+                {/* Row cells */}
+                <div className="flex min-w-0">
                   {columns.map((column, columnIndex) => (
-                    <td
-                      key={`${row.id}-${column.id}-${columnIndex}`}
+                    <div
+                      key={`${row.id}-${column.id}`}
                       className={cn(
-                        "border-r border-b border-gray-200 p-2 last:border-r-0",
-                        focusedCell?.rowIndex === rowIndex &&
+                        "border-r border-gray-200 px-4 py-2",
+                        focusedCell?.rowIndex === virtualRow.index &&
                           focusedCell?.columnIndex === columnIndex &&
                           "bg-blue-50",
                       )}
-                      style={{
-                        width: column.width ? `${column.width}px` : "200px",
-                      }}
-                      onClick={() => focusCell(rowIndex, columnIndex)}
+                      style={{ width: column.width ?? 200 }}
+                      onClick={() =>
+                        setFocusedCell({
+                          rowIndex: virtualRow.index,
+                          columnIndex,
+                        })
+                      }
                     >
-                      <input
-                        ref={(el) => {
-                          if (el) {
-                            // Ensure the row object exists for this ref
-                            inputRefs.current[row.id] ??= {};
-                            // Now we can safely assign the element
-                            inputRefs.current[row.id]![column.id] = el;
-                          }
-                        }}
-                        type={column.type === "number" ? "number" : "text"}
-                        value={row[column.id] ?? ""}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          onUpdateCell(
-                            row.id,
-                            column.id,
-                            value === ""
-                              ? null
-                              : column.type === "number"
-                                ? Number(value)
-                                : value,
-                          );
-                        }}
-                        onFocus={() =>
-                          setFocusedCell({ rowIndex, columnIndex })
-                        }
-                        onKeyDown={(e) =>
-                          handleKeyDown(e, rowIndex, columnIndex)
-                        }
-                        className="w-full border-none bg-transparent p-0 focus:ring-0 focus:outline-none"
-                      />
-                    </td>
+                      {row[column.id]}
+                    </div>
                   ))}
-                  <td className="w-10 border-b border-gray-200 p-2" />
-                </tr>
-              ))}
-              {/* 添加行按钮行 */}
-              {showAddRowButton && (
-                <tr>
-                  <td
-                    className="border-r border-b border-gray-200 p-2 text-center"
-                    style={{ width: rowNumberColumn.width }}
-                  >
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="mx-auto h-6 w-6 p-0"
-                      onClick={onAddRow}
-                    >
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </td>
-                  {columns.map((column, colIndex) => (
-                    <td
-                      key={`add-row-${column.id}-${colIndex}`}
-                      className="border-r border-b border-gray-200 p-2 last:border-r-0"
-                      style={{
-                        width: column.width ? `${column.width}px` : "200px",
-                      }}
-                    />
-                  ))}
-                  <td className="w-10 border-b border-gray-200 p-2" />
-                </tr>
-              )}
-            </tbody>
-          </table>
+                </div>
+              </div>
+            );
+          })}
         </div>
+
+        {/* Add row button */}
+        {showAddRowButton && (
+          <div className="sticky bottom-0 flex w-full items-center justify-center border-t border-gray-200 bg-white py-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={onAddRow}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

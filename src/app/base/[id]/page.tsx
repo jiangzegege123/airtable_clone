@@ -74,7 +74,7 @@ export default function BasePage() {
     }
   }, [session, isLoadingSession, router]);
 
-  // 自动跳转到第一个 table
+  // Auto redirect to the first table
   useEffect(() => {
     if (!isLoadingTables && tables.length > 0 && tables[0]?.id) {
       router.replace(`/base/${baseId}/${tables[0].id}`);

@@ -553,4 +553,98 @@ export const tableRouter = createTRPCRouter({
         record: newRecord,
       };
     }),
+
+  add100kRows: protectedProcedure
+    .input(
+      z.object({
+        tableId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Check if table exists and user has access
+      const table = await ctx.db.table.findUnique({
+        where: { id: input.tableId },
+        include: {
+          base: { select: { ownerId: true } },
+          fields: { orderBy: { order: "asc" } },
+        },
+      });
+
+      if (!table) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Table not found",
+        });
+      }
+
+      if (table.base.ownerId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have permission to modify this table",
+        });
+      }
+
+      // Create 100k records in batches of 1000
+      const batchSize = 1000;
+      const totalRecords = 100000;
+      const batches = Math.ceil(totalRecords / batchSize);
+
+      for (let i = 0; i < batches; i++) {
+        const recordsToCreate = Math.min(
+          batchSize,
+          totalRecords - i * batchSize,
+        );
+
+        // Create records batch
+        const records = await ctx.db.record.createMany({
+          data: Array(recordsToCreate).fill({ tableId: input.tableId }),
+        });
+
+        // Get the created record IDs
+        const createdRecords = await ctx.db.record.findMany({
+          where: { tableId: input.tableId },
+          orderBy: { createdAt: "desc" },
+          take: recordsToCreate,
+          select: { id: true },
+        });
+
+        // Generate cell values for each record
+        const cellValuesData = createdRecords.flatMap((record) =>
+          table.fields.map((field) => {
+            let value = null;
+
+            // Generate appropriate fake data based on field name/type
+            if (field.name.toLowerCase() === "name") {
+              value = faker.person.fullName();
+            } else if (field.name.toLowerCase() === "email") {
+              value = faker.internet.email();
+            } else if (field.name.toLowerCase() === "phone") {
+              value = faker.phone.number();
+            } else if (field.name.toLowerCase() === "address") {
+              value = faker.location.streetAddress();
+            } else if (field.type === "text") {
+              value = faker.lorem.word();
+            } else if (field.type === "number") {
+              value = String(faker.number.int(100));
+            }
+
+            return {
+              recordId: record.id,
+              fieldId: field.id,
+              value,
+            };
+          }),
+        );
+
+        // Create cell values batch
+        await ctx.db.cellValue.createMany({
+          data: cellValuesData,
+        });
+      }
+
+      return {
+        success: true,
+        message: `Added ${totalRecords} rows successfully`,
+      };
+    }),
 });

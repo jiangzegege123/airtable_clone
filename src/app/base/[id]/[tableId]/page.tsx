@@ -85,7 +85,7 @@ export default function TablePage() {
       });
       // Refresh tables list
       void utils.table.list.invalidate({ baseId });
-      // If the deleted table was the selected one,跳转到base页
+      // If the deleted table was the selected one, redirect to base page
       if (variables.id === tableId) {
         router.replace(`/base/${baseId}`);
       }
@@ -103,12 +103,12 @@ export default function TablePage() {
   const [columns, setColumns] = useState<Column[]>([]);
   const [initialized, setInitialized] = useState(false);
 
-  // 新增缓存引用
+  // Add cache reference
   const tableCache = useRef<
     Record<string, { columns: Column[]; rows: TableRow[] }>
   >({});
 
-  // 添加分页状态
+  // Add pagination state
   const [skip, setSkip] = useState<number>(0);
   const [hasMore, setHasMore] = useState<boolean>(true);
   const [totalCount, setTotalCount] = useState<number>(0);
@@ -123,7 +123,7 @@ export default function TablePage() {
   // Add a counter for temporary IDs to ensure uniqueness
   const tempIdCounterRef = useRef<number>(0);
 
-  // 默认字段
+  // Default fields
   const defaultColumns: Column[] = [
     { id: "name", name: "Name", type: "text", width: 160 },
     { id: "email", name: "Email", type: "text", width: 220 },
@@ -148,7 +148,7 @@ export default function TablePage() {
     };
   };
 
-  // 生成假数据
+  // Generate mock data
   const generateFakeRows = (count: number): TableRow[] => {
     return Array.from({ length: count }).map((_, i) => ({
       id: (i + 1).toString(),
@@ -159,7 +159,7 @@ export default function TablePage() {
     }));
   };
 
-  // Fetch table data when tableId changes
+  // Query for loading more data
   const { data: tableData, isLoading: isLoadingTableData } =
     api.table.getById.useQuery(
       {
@@ -173,7 +173,7 @@ export default function TablePage() {
       },
     );
 
-  // 用于加载更多数据的查询
+  // Update row data, merge newly loaded data
   const loadMoreData = useCallback(async () => {
     // Early return conditions in a single block to simplify logic
     if (!tableId || !hasMore || isLoadingMore || isLoadingLockRef.current)
@@ -241,7 +241,7 @@ export default function TablePage() {
     }
   }, [tableId, skip, hasMore, isLoadingMore, rows, utils.table.getById]);
 
-  // 添加强制检查是否需要加载更多数据的函数
+  // Add function to force check if more data needs to be loaded
   const checkIfNeedMoreData = useCallback(() => {
     // Don't check if we're changing tables or already loading
     if (tableId !== currentTableIdRef.current || isLoadingLockRef.current) {
@@ -262,7 +262,7 @@ export default function TablePage() {
       return false;
     }
 
-    // 使用更可靠的选择器, ".table-container" 类可能更一致地存在
+    // Use more reliable selector, ".table-container" class might be more consistently present
     const tableContainer = document.querySelector(".table-container");
 
     if (!tableContainer || !tableBottomRef.current) {
@@ -273,7 +273,7 @@ export default function TablePage() {
       return false;
     }
 
-    // 获取容器尺寸信息
+    // Get container dimensions
     const { scrollTop, clientHeight, scrollHeight } = tableContainer;
     const scrollBottom = scrollHeight - scrollTop - clientHeight;
 
@@ -282,13 +282,13 @@ export default function TablePage() {
       clientHeight,
       scrollHeight,
       scrollBottom,
-      threshold: Math.min(300, clientHeight * 0.3), // 动态阈值，较小的屏幕用较小的阈值
+      threshold: Math.min(300, clientHeight * 0.3), // Dynamic threshold, smaller screens use smaller threshold
     });
 
-    // 计算一个基于容器高度的动态阈值，较小的容器使用较小的阈值，但不超过300px
+    // Calculate a dynamic threshold based on container height, smaller containers use smaller threshold but not exceeding 300px
     const threshold = Math.min(300, clientHeight * 0.3);
 
-    // 如果内容不足一屏或接近底部，加载更多
+    // If content is not enough to fill screen or near bottom, load more
     if (scrollBottom < threshold) {
       console.log("Content not filling the view, loading more automatically");
       void loadMoreData();
@@ -298,7 +298,7 @@ export default function TablePage() {
     return false;
   }, [hasMore, isLoadingMore, loadMoreData, tableId]);
 
-  // 设置无限滚动的监听
+  // Set up infinite scroll listener
   const handleScroll = useCallback(
     (e: Event) => {
       // Don't process scroll during table ID change or loading
@@ -322,18 +322,18 @@ export default function TablePage() {
         return;
       }
 
-      // 获取滚动容器
+      // Get scroll container
       const container = e.target as HTMLElement;
       if (!container) return;
 
-      // 计算是否需要加载更多
+      // Calculate if more data needs to be loaded
       const { scrollTop, clientHeight, scrollHeight } = container;
       const scrollBottom = scrollHeight - scrollTop - clientHeight;
 
-      // 使用动态阈值，但不小于50px
+      // Use dynamic threshold, but not less than 50px
       const threshold = Math.max(50, clientHeight * 0.2);
 
-      // 当距离底部还有阈值距离时加载更多
+      // Load more when distance to bottom is within threshold
       if (
         scrollBottom < threshold &&
         !isLoadingMore &&
@@ -346,33 +346,33 @@ export default function TablePage() {
     [hasMore, isLoadingMore, loadMoreData, tableId],
   );
 
-  // 当表格数据加载成功时的处理
+  // Handle when table data is loaded successfully
   useEffect(() => {
     if (tableData && !initialized) {
       console.log("Table data received from server", tableData);
 
-      // 设置分页信息
+      // Set pagination info
       if (tableData.pagination) {
         setHasMore(tableData.pagination.hasMore);
         setTotalCount(tableData.pagination.totalCount);
-        setSkip(10); // 初始加载10条，下次从第10条开始
+        setSkip(10); // Initial load of 10 items, next load starts from 10th item
       }
 
-      // 设置表格数据
+      // Set table data
       if (tableData.columns?.length) {
         setColumns(tableData.columns as Column[]);
         setRows(tableData.rows);
-        // 写入缓存
+        // Write to cache
         tableCache.current[tableId] = {
           columns: tableData.columns as Column[],
           rows: tableData.rows,
         };
         setInitialized(true);
       } else {
-        // 没有数据时用默认值
+        // Use default values when no data
         setColumns(defaultColumns);
         setRows(generateFakeRows(10));
-        // 写入缓存
+        // Write to cache
         tableCache.current[tableId] = {
           columns: defaultColumns,
           rows: generateFakeRows(10),
@@ -380,31 +380,31 @@ export default function TablePage() {
         setInitialized(true);
       }
 
-      // 标记数据刚初始化，用于触发首次滚动检查
+      // Mark data as just initialized, used to trigger first scroll check
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
-          // 嵌套requestAnimationFrame确保在数据渲染后检查
+          // Nested requestAnimationFrame to ensure check after data rendering
           checkIfNeedMoreData();
         });
       });
     }
   }, [tableData, initialized, tableId, defaultColumns, checkIfNeedMoreData]);
 
-  // 特别为页面首次加载添加一个监听器，确保所有DOM元素都加载完
+  // Add special listener for first page load to ensure all DOM elements are loaded
   useEffect(() => {
     if (tableId && initialized) {
-      // 使用MutationObserver监听DOM变化
+      // Use MutationObserver to monitor DOM changes
       const observer = new MutationObserver((mutations) => {
-        // 当DOM变化后检查是否需要加载更多
+        // Check if more data needs to be loaded after DOM changes
         window.requestAnimationFrame(() => {
           checkIfNeedMoreData();
         });
 
-        // 只运行一次，然后解除监听
+        // Run once then disconnect observer
         observer.disconnect();
       });
 
-      // 监听表格容器的变化
+      // Monitor table container changes
       const container = document.querySelector(".table-container");
       if (container) {
         observer.observe(container, {
@@ -412,7 +412,7 @@ export default function TablePage() {
           subtree: true,
         });
 
-        // 确保不超过5秒
+        // Ensure not exceeding 5 seconds
         setTimeout(() => observer.disconnect(), 5000);
       }
 
@@ -420,7 +420,7 @@ export default function TablePage() {
     }
   }, [tableId, initialized, checkIfNeedMoreData]);
 
-  // 监听 tableId 变化
+  // Monitor tableId changes
   useEffect(() => {
     if (tableId) {
       console.log("Table ID changed, resetting state", {
@@ -436,18 +436,18 @@ export default function TablePage() {
 
       const cached = tableCache.current[tableId];
       if (cached) {
-        // 从缓存加载数据
+        // Load data from cache
         setColumns(cached.columns);
         setRows(cached.rows);
         setInitialized(true);
 
-        // 设置hasMore为false，如果我们已经加载了所有数据
-        // 这样可以防止切换回已加载完全的表格时触发新的加载
+        // Set hasMore to false if we've loaded all data
+        // This prevents triggering new loads when switching back to fully loaded tables
         if (cached.rows.length === totalCount) {
           setHasMore(false);
         }
       } else {
-        // 没有缓存则重置状态，等待数据加载
+        // Reset state and wait for data load if no cache
         setInitialized(false);
         setSkip(0);
         setHasMore(true);
@@ -460,21 +460,23 @@ export default function TablePage() {
     }
   }, [tableId, totalCount]);
 
-  // 首次加载完成后检查是否需要加载更多数据的专用useEffect
+  // Dedicated useEffect to check if more data needs to be loaded after first load
   useEffect(() => {
-    // 仅当表格数据首次加载完成后执行
+    // Only execute after table data is loaded for the first time
     if (initialized && rows.length > 0 && hasMore) {
-      console.log("首次数据加载完成，检查是否需要加载更多");
-      // 使用requestAnimationFrame确保DOM已更新
+      console.log(
+        "Initial data load complete, checking if more data needs to be loaded",
+      );
+      // Use requestAnimationFrame to ensure DOM is updated
       window.requestAnimationFrame(() => {
         setTimeout(() => {
-          // 强制检查滚动位置
+          // Force check scroll position
           const tableContainer = document.querySelector(".table-container");
           if (tableContainer) {
             const { scrollHeight, clientHeight } =
               tableContainer as HTMLElement;
 
-            // 如果内容不足以填满容器，立即加载更多
+            // If content is not enough to fill container, load more immediately
             if (scrollHeight <= clientHeight && hasMore) {
               console.log(
                 "Content height not filling container, loading more data",
@@ -489,7 +491,7 @@ export default function TablePage() {
     }
   }, [initialized, rows.length, hasMore, checkIfNeedMoreData, loadMoreData]);
 
-  // 注册滚动事件监听
+  // Register scroll event listener
   useEffect(() => {
     // Skip registering if we're in the middle of changing tables
     if (tableId !== currentTableIdRef.current || isLoadingLockRef.current) {
@@ -498,9 +500,9 @@ export default function TablePage() {
 
     console.log("Registering scroll event");
 
-    // 使用requestAnimationFrame确保DOM已渲染
+    // Use requestAnimationFrame to ensure DOM is rendered
     const registerScrollEvent = () => {
-      // 查找表格容器
+      // Find table container
       const tableContainer = document.querySelector(".table-container");
 
       if (tableContainer) {
@@ -570,7 +572,7 @@ export default function TablePage() {
           }
         }, 500);
 
-        // 添加一个滚动位置检查的定时器，防止某些情况下滚动事件不触发
+        // Add a scroll position check timer to prevent cases where scroll event doesn't trigger
         const scrollCheckInterval = setInterval(() => {
           if (
             hasMore &&
@@ -597,13 +599,13 @@ export default function TablePage() {
         };
       } else {
         console.log("Table container not found, waiting for DOM rendering");
-        // 如果没找到容器，可能DOM还没渲染完成，稍后再尝试
+        // If container not found, DOM might not be rendered yet, try again later
         const timeoutId = setTimeout(registerScrollEvent, 200);
         return () => clearTimeout(timeoutId);
       }
     };
 
-    // 启动注册过程
+    // Start registration process
     const cleanup = registerScrollEvent();
     return cleanup;
   }, [
@@ -615,17 +617,17 @@ export default function TablePage() {
     loadMoreData,
   ]);
 
-  // 监听行数据变化，检查是否需要加载更多
+  // Monitor row data changes, check if more data needs to be loaded
   useEffect(() => {
-    // 只在数据已初始化且有行数据时检查
+    // Only check when data is initialized and has row data
     if (rows.length > 0 && initialized && hasMore) {
-      // 当行数据更新后，检查是否需要加载更多
+      // Check if more data needs to be loaded when row data updates
       window.requestAnimationFrame(() => {
         setTimeout(checkIfNeedMoreData, 300);
       });
     }
 
-    // 确保totalCount至少与当前行数一致
+    // Ensure totalCount is at least consistent with current row count
     if (rows.length > totalCount) {
       console.log("Rows count exceeds totalCount, updating totalCount", {
         rows: rows.length,
@@ -634,7 +636,7 @@ export default function TablePage() {
       setTotalCount(rows.length);
     }
 
-    // 检查是否已加载所有数据
+    // Check if all data is loaded
     if (rows.length > 0 && totalCount > 0 && rows.length >= totalCount) {
       if (hasMore) {
         console.log("All data loaded, setting hasMore to false");
@@ -643,21 +645,21 @@ export default function TablePage() {
     }
   }, [rows, initialized, hasMore, checkIfNeedMoreData, totalCount]);
 
-  // 添加一个监听 tableId 变化以及初始化完成的效果
+  // Add effect to monitor tableId changes and initialization completion
   useEffect(() => {
     if (tableId && initialized) {
-      // 确保在表格数据加载并初始化后触发检查
+      // Only attempt to load when there is more data
       console.log(
         "Table data initialized, checking if more data needs to be loaded",
       );
-      // 仅当还有更多数据时才尝试加载
+      // Only when there is more data, attempt to load
       if (hasMore) {
         setTimeout(checkIfNeedMoreData, 500);
       }
     }
   }, [tableId, initialized, checkIfNeedMoreData, hasMore]);
 
-  // Set up cell update mutation
+  // Force refresh current table data after cell update
   const updateCellMutation = api.table.updateCell.useMutation({
     onSuccess: () => {
       // cell 更新后强制刷新当前表数据
@@ -672,7 +674,7 @@ export default function TablePage() {
     },
   });
 
-  // 修改 addRowMutation 回调处理，避免重复生成假数据
+  // Modify addRowMutation callback handling to avoid duplicate mock data generation
   const addRowMutation = api.table.addRow.useMutation({
     onSuccess: (data) => {
       toast({
@@ -681,30 +683,30 @@ export default function TablePage() {
         variant: "success",
       });
 
-      // 只处理行ID的更新，保留前端已经生成的假数据内容
+      // Only handle row ID update, preserve frontend generated mock data content
       if (data?.record) {
-        // 查找最后一行临时数据
+        // Find last temporary row data
         const tempRowIndex = rows.findIndex((row) =>
           row.id.startsWith("temp-"),
         );
 
         if (tempRowIndex !== -1) {
-          // 获取临时行数据
+          // Get temporary row data
           const tempRow = rows[tempRowIndex];
 
-          // 确保临时行存在
+          // Ensure temporary row exists
           if (tempRow) {
-            // 创建新行对象，保留临时行的所有数据，只更改ID
+            // Create new row object, preserve all temporary row data, only change ID
             const newRow = {
               ...tempRow,
               id: data.record.id,
             };
 
-            // 更新行数据，替换临时行
+            // Update row data, replace temporary row
             const updatedRows = [...rows];
             updatedRows[tempRowIndex] = newRow;
 
-            // 更新状态和缓存
+            // Update state and cache
             setRowsAndCache(updatedRows);
 
             console.log("Row added successfully, updated row ID", {
@@ -715,23 +717,23 @@ export default function TablePage() {
             });
           }
         } else {
-          // 如果找不到临时行（这种情况应该很少发生），则返回到原来的逻辑
+          // If temporary row not found (this should rarely happen), return to original logic
           utils.table.getById
             .fetch({
               id: tableId,
-              skip: 0, // 始终从第一行开始获取，因为我们需要找到刚添加的行
-              take: totalCount, // 获取所有行，确保包含新行
-              loadAll: true, // 加载全部数据，避免分页问题
+              skip: 0, // Always start from first row as we need to find the newly added row
+              take: totalCount, // Get all rows to ensure including new row
+              loadAll: true, // Load all data to avoid pagination issues
             })
             .then((newData) => {
               if (newData?.rows?.length) {
-                // 找到新添加的行
+                // Find newly added row
                 const newRow = newData.rows.find(
                   (r) => r.id === data.record.id,
                 );
 
                 if (newRow) {
-                  // 更新行数据，保留其他临时行
+                  // Update row data, preserve other temporary rows
                   const updatedRows = [...rows];
                   const nonTempRows = updatedRows.filter(
                     (row) =>
@@ -740,13 +742,13 @@ export default function TablePage() {
                   nonTempRows.push(newRow);
                   setRows(nonTempRows);
 
-                  // 更新缓存
+                  // Update cache
                   tableCache.current[tableId] = {
                     columns: columns,
                     rows: nonTempRows,
                   };
 
-                  // 更新分页信息
+                  // Update pagination info
                   if (newData.pagination) {
                     setTotalCount(newData.pagination.totalCount);
                   }
@@ -769,11 +771,11 @@ export default function TablePage() {
         variant: "destructive",
       });
 
-      // 移除临时行
+      // Remove temporary rows
       const updatedRows = rows.filter((row) => !row.id.startsWith("temp-"));
       setRowsAndCache(updatedRows);
 
-      // 恢复总数计数器
+      // Restore total count counter
       if (totalCount > updatedRows.length) {
         setTotalCount(updatedRows.length);
       }
@@ -789,7 +791,7 @@ export default function TablePage() {
       });
 
       if (data?.field) {
-        // 创建真实的新列对象，替代临时列
+        // Create real new column object, replace temporary column
         const newColumn: Column = {
           id: data.field.id,
           name: data.field.name,
@@ -797,33 +799,33 @@ export default function TablePage() {
           width: 200,
         };
 
-        // 找到并替换临时列
+        // Find and replace temporary column
         const updatedColumns = columns.map((col) =>
           col.id.startsWith("temp-") ? newColumn : col,
         );
 
-        // 确保不会漏掉新列
+        // Ensure not to miss new column
         if (!updatedColumns.some((col) => col.id === newColumn.id)) {
           updatedColumns.push(newColumn);
         }
 
-        // 用正确的列ID更新所有行
+        // Use correct column ID to update all rows
         const updatedRows = rows.map((row) => {
           const newRow = { ...row };
-          // 找到临时列的值
+          // Find temporary column value
           const tempColId = Object.keys(row).find((key) =>
             key.startsWith("temp-"),
           );
           if (tempColId && newColumn.id) {
-            // 确保临时值存在，不为undefined
+            // Ensure temporary value exists, not undefined
             const tempValue = row[tempColId];
             newRow[newColumn.id] = tempValue !== undefined ? tempValue : null;
-            delete newRow[tempColId]; // 删除临时列的值
+            delete newRow[tempColId]; // Delete temporary column value
           }
           return newRow;
         });
 
-        // 更新状态和缓存
+        // Update state and cache
         setColumns(updatedColumns);
         setRows(updatedRows);
         tableCache.current[tableId] = {
@@ -835,7 +837,7 @@ export default function TablePage() {
           newColumn,
         });
       } else {
-        // 如果没有收到字段数据，则需要重新获取
+        // If no field data is received, need to re-fetch
         utils.table.getById
           .fetch({
             id: tableId,
@@ -845,16 +847,16 @@ export default function TablePage() {
           })
           .then((newData) => {
             if (newData?.columns?.length) {
-              // 更新列和行数据，保持当前滚动位置
+              // Update column and row data, keep current scroll position
               setColumns(newData.columns as Column[]);
 
-              // 过滤掉临时行
+              // Filter out temporary rows
               const updatedRows = newData.rows.filter(
                 (r) => !r.id.startsWith("temp-"),
               );
               setRows(updatedRows);
 
-              // 更新缓存
+              // Update cache
               tableCache.current[tableId] = {
                 columns: newData.columns as Column[],
                 rows: updatedRows,
@@ -880,13 +882,13 @@ export default function TablePage() {
         variant: "destructive",
       });
 
-      // 移除临时列
+      // Remove temporary columns
       const updatedColumns = columns.filter(
         (col) => !col.id.startsWith("temp-"),
       );
       setColumnsAndCache(updatedColumns);
 
-      // 从行中移除临时列数据
+      // Remove temporary column data from rows
       const updatedRows = rows.map((row) => {
         const newRow = { ...row };
         Object.keys(newRow).forEach((key) => {
@@ -906,7 +908,7 @@ export default function TablePage() {
     }
   }, [session, isLoadingSession, router]);
 
-  // 主动 checkIfNeedMoreData，rows/columns/totalCount/initialized/hasMore 变化时
+  // Active checkIfNeedMoreData, rows/columns/totalCount/initialized/hasMore changes
   useEffect(() => {
     if (!(initialized && hasMore)) return;
     window.requestAnimationFrame(() => {
@@ -915,7 +917,7 @@ export default function TablePage() {
         if (tableContainer) {
           const { scrollHeight, clientHeight } = tableContainer;
           if (scrollHeight <= clientHeight + 10) {
-            // 内容不足一屏，自动加载
+            // Content not enough to fill screen, auto load
             void loadMoreData();
           } else {
             checkIfNeedMoreData();
@@ -933,7 +935,7 @@ export default function TablePage() {
     checkIfNeedMoreData,
   ]);
 
-  // 定时器 backup 检查，每 500ms 检查一次
+  // Timer backup check, check every 500ms
   useEffect(() => {
     const interval = setInterval(() => {
       if (hasMore && !isLoadingMore && !isLoadingLockRef.current) {
@@ -942,6 +944,30 @@ export default function TablePage() {
     }, 500);
     return () => clearInterval(interval);
   }, [hasMore, isLoadingMore, checkIfNeedMoreData]);
+
+  const add100kRowsMutation = api.table.add100kRows.useMutation({
+    onSuccess: () => {
+      toast({
+        title: "Added 100k rows successfully",
+        duration: 2000,
+        variant: "success",
+      });
+      // Refresh table data
+      void utils.table.getById.invalidate({ id: tableId });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error adding rows",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleAdd100kRows = () => {
+    if (!tableId) return;
+    add100kRowsMutation.mutate({ tableId });
+  };
 
   if (isLoadingSession) {
     return (
@@ -986,20 +1012,20 @@ export default function TablePage() {
     );
   }
 
-  // 修改 handleAddRow 调用后端 API
+  // Modify handleAddRow call to call backend API
   const handleAddRow = () => {
     // Increment temp ID counter to ensure uniqueness
     tempIdCounterRef.current += 1;
 
-    // 生成一个临时ID - add counter to timestamp to ensure uniqueness even when clicked rapidly
+    // Generate a temporary ID - add counter to timestamp to ensure uniqueness even when clicked rapidly
     const temporaryId = `temp-${Date.now()}-${tempIdCounterRef.current}`;
 
-    // 使用faker直接生成带有假数据的新行
+    // Use faker directly to generate new row with mock data
     const newRow: TableRow = {
       id: temporaryId,
     };
 
-    // 为每列添加假数据而不是"Loading..."
+    // Add mock data to each column instead of "Loading..."
     columns.forEach((column) => {
       if (column.id === "name" || column.name.toLowerCase() === "name") {
         newRow[column.id] = faker.person.fullName();
@@ -1025,32 +1051,32 @@ export default function TablePage() {
       }
     });
 
-    // 立即更新状态和缓存，显示假数据
+    // Immediately update state and cache, display mock data
     const updatedRows = [...rows, newRow];
     setRowsAndCache(updatedRows);
 
-    // 更新总数计数器
+    // Update total count counter
     setTotalCount((prevCount) => prevCount + 1);
 
-    // 同时调用后端 API 添加行
+    // Call backend API to add row
     addRowMutation.mutate({
       tableId: tableId,
     });
   };
 
-  // 修改 handleAddColumn 调用后端 API
+  // Modify handleAddColumn call to call backend API
   const handleAddColumn = () => {
-    // 弹出对话框让用户输入列名
+    // Pop up dialog for user to input column name
     const columnName = prompt("Enter column name:");
     if (!columnName) return;
 
     // Increment temp ID counter to ensure uniqueness
     tempIdCounterRef.current += 1;
 
-    // 生成临时ID
+    // Generate temporary ID
     const temporaryId = `temp-${Date.now()}-${tempIdCounterRef.current}`;
 
-    // 创建新列
+    // Create new column
     const newColumn: Column = {
       id: temporaryId,
       name: columnName,
@@ -1058,24 +1084,24 @@ export default function TablePage() {
       width: 200,
     };
 
-    // 更新列列表
+    // Update column list
     const newColumns = [...columns, newColumn];
     setColumnsAndCache(newColumns);
 
-    // 为所有行在新列中添加假数据
+    // Add mock data to all rows in new column
     const updatedRows = rows.map((row) => ({
       ...row,
       [temporaryId]: faker.lorem.word(),
     }));
 
-    // 更新行数据并缓存
+    // Update row data and cache
     setRowsAndCache(updatedRows);
 
-    // 同时调用后端 API 添加列
+    // Call backend API to add column
     addColumnMutation.mutate({
       tableId: tableId,
       name: columnName,
-      type: "text", // 默认文本类型
+      type: "text", // Default text type
     });
   };
 
@@ -1101,12 +1127,6 @@ export default function TablePage() {
       fieldName: column.name,
       value,
     });
-  };
-
-  const handleAdd100kRows = () => {
-    const newRows = generateFakeRows(100000);
-    setRowsAndCache([...rows, ...newRows]);
-    setTotalCount(totalCount + 100000);
   };
 
   const handleAddTable = () => {
@@ -1203,7 +1223,7 @@ export default function TablePage() {
               overscrollBehavior: "contain", // Prevent scroll chaining
               WebkitOverflowScrolling: "touch", // Improve scroll on iOS
             }}
-            data-table-id={tableId} // 添加数据属性以便调试和追踪表格ID变化
+            data-table-id={tableId} // Add data attribute for debugging and tracking table ID changes
           >
             <TableView
               columns={columns}
@@ -1214,29 +1234,8 @@ export default function TablePage() {
               showAddRowButton={!hasMore}
               onAdd100kRows={handleAdd100kRows}
             />
-            {/* 加载更多的提示和引用点 */}
-            <div ref={tableBottomRef} className="py-2 text-center">
-              {isLoadingMore ? (
-                <div className="flex justify-center py-4">
-                  <div className="h-6 w-6 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600" />
-                  <span className="ml-2 text-sm text-gray-500">
-                    Loading more data...
-                  </span>
-                </div>
-              ) : hasMore ? (
-                <span className="text-sm text-gray-400">
-                  Scroll to load more ({rows.length} of {totalCount})
-                </span>
-              ) : rows.length > 0 ? (
-                <div className="py-4">
-                  <span className="text-sm text-gray-400">
-                    All {totalCount} records loaded
-                  </span>
-                </div>
-              ) : (
-                <span className="text-sm text-gray-400">No data available</span>
-              )}
-            </div>
+            {/* Hidden reference point, used to detect scroll position */}
+            <div ref={tableBottomRef} className="h-px w-full" />
           </div>
         ) : tables.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center">
