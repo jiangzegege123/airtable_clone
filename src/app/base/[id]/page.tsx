@@ -4,7 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import { api } from "~/trpc/react";
 import { useEffect } from "react";
 import { Button } from "~/components/ui/button";
-import { Plus } from "lucide-react";
+import { Plus, Database } from "lucide-react";
 import { useToast } from "~/components/ui/use-toast";
 import { Navbar } from "~/components/layout/Navbar";
 import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
@@ -182,9 +182,29 @@ export default function BasePage() {
       </div>
       {/* Main Content Area */}
       <div className="flex flex-1 items-center justify-center">
-        <span className="text-lg text-gray-400">
-          Select a table to view its data.
-        </span>
+        {tables.length === 0 ? (
+          <div className="flex flex-col items-center justify-center space-y-4">
+            <div className="rounded-full bg-gray-100 p-4">
+              <Database className="h-12 w-12 text-gray-400" />
+            </div>
+            <div className="text-center">
+              <h3 className="text-lg font-medium text-gray-900">
+                No tables in this base
+              </h3>
+              <p className="mt-1 text-sm text-gray-500">
+                Get started by creating your first table to organize your data.
+              </p>
+            </div>
+            <Button onClick={handleAddTable} className="mt-4">
+              <Plus className="mr-2 h-4 w-4" />
+              Create your first table
+            </Button>
+          </div>
+        ) : (
+          <span className="text-lg text-gray-400">
+            Select a table to view its data.
+          </span>
+        )}
       </div>
     </div>
   );

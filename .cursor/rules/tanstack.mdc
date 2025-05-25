@@ -1,0 +1,483 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# TanStack Virtual Rules
+
+TanStack Virtual is a headless UI utility for virtualizing long lists of elements. It provides 100% control over markup and styles while delivering high-performance virtualization.
+
+## Core Principles
+
+1. **Headless Design**: TanStack Virtual provides no markup or styles - you retain full control over design and implementation.
+
+2. **Performance First**: Only render visible items to maintain 60FPS performance with massive datasets.
+
+3. **Framework Agnostic**: Works with React, Vue, Svelte, Solid, Angular, and vanilla JS/TS.
+
+4. **Flexible Orientation**: Supports vertical, horizontal, and grid-like virtualization.
+
+## Project Structure
+
+```
+src/
+├── components/
+│   ├── VirtualList.tsx      # Basic virtual list component
+│   ├── VirtualTable.tsx     # Virtual table implementation
+│   └── VirtualGrid.tsx      # Grid virtualization
+├── hooks/
+│   ├── useVirtualizer.ts    # Custom virtualizer hooks
+│   └── useVirtualTable.ts   # Table-specific hooks
+└── utils/
+    └── virtualizer.ts       # Utility functions
+```
+
+## Basic Implementation
+
+1. **Essential Setup**: Always provide these core configurations
+
+```typescript
+import { useVirtualizer } from '@tanstack/react-virtual';
+
+const rowVirtualizer = useVirtualizer({
+  count: data.length,              // Total number of items
+  getScrollElement: () => parentRef.current,  // Scrollable container
+  estimateSize: () => 50,          // Estimated item height
+  overscan: 5,                     // Extra items to render outside viewport
+});
+```
+
+2. **Container Structure**: Use proper DOM structure for virtualization
+
+```typescript
+// Scrollable container
+<div
+  ref={parentRef}
+  style={{
+    height: '400px',
+    overflow: 'auto',            // Enable scrolling
+  }}
+>
+  {/* Inner container with total height */}
+  <div
+    style={{
+      height: `${rowVirtualizer.getTotalSize()}px`,
+      width: '100%',
+      position: 'relative',      // Required for absolute positioning
+    }}
+  >
+    {/* Rendered virtual items */}
+    {rowVirtualizer.getVirtualItems().map((virtualItem) => (
+      <div
+        key={virtualItem.key}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: `${virtualItem.size}px`,
+          transform: `translateY(${virtualItem.start}px)`,
+        }}
+      >
+        {/* Your item content */}
+      </div>
+    ))}
+  </div>
+</div>
+```
+
+## Sizing Strategies
+
+1. **Fixed Size**: Use when all items have the same height
+
+```typescript
+const virtualizer = useVirtualizer({
+  count: items.length,
+  getScrollElement: () => parentRef.current,
+  estimateSize: () => 60,        // Fixed height
+});
+```
+
+2. **Dynamic Size**: For variable height items
+
+```typescript
+const virtualizer = useVirtualizer({
+  count: items.length,
+  getScrollElement: () => parentRef.current,
+  estimateSize: (index) => {
+    // Return estimated size based on content
+    return items[index].estimated_height || 50;
+  },
+  measureElement: (element) => {
+    // Measure actual element size
+    return element?.getBoundingClientRect().height ?? 0;
+  },
+});
+```
+
+3. **Content-Based Sizing**: Measure content dynamically
+
+```typescript
+const getItemSize = useCallback((index: number) => {
+  const item = data[index];
+  if (item.type === 'header') return 80;
+  if (item.type === 'large') return 120;
+  return 60;
+}, [data]);
+
+const virtualizer = useVirtualizer({
+  count: data.length,
+  getScrollElement: () => parentRef.current,
+  estimateSize: getItemSize,
+});
+```
+
+## Advanced Patterns
+
+1. **Horizontal Virtualization**: For horizontal scrolling lists
+
+```typescript
+const columnVirtualizer = useVirtualizer({
+  count: columns.length,
+  getScrollElement: () => parentRef.current,
+  estimateSize: () => 200,
+  horizontal: true,              // Enable horizontal mode
+});
+```
+
+2. **Grid Virtualization**: Combine horizontal and vertical virtualizers
+
+```typescript
+const rowVirtualizer = useVirtualizer({
+  count: Math.ceil(items.length / COLUMNS),
+  getScrollElement: () => parentRef.current,
+  estimateSize: () => 100,
+});
+
+const columnVirtualizer = useVirtualizer({
+  count: COLUMNS,
+  getScrollElement: () => parentRef.current,
+  estimateSize: () => 200,
+  horizontal: true,
+});
+```
+
+3. **Infinite Scrolling**: Load more data as user scrolls
+
+```typescript
+const virtualizer = useVirtualizer({
+  count: hasNextPage ? items.length + 1 : items.length,
+  getScrollElement: () => parentRef.current,
+  estimateSize: () => 60,
+});
+
+useEffect(() => {
+  const [lastItem] = [...virtualizer.getVirtualItems()].reverse();
+  
+  if (!lastItem) return;
+  
+  if (
+    lastItem.index >= items.length - 1 &&
+    hasNextPage &&
+    !isFetchingNextPage
+  ) {
+    fetchNextPage();
+  }
+}, [
+  hasNextPage,
+  fetchNextPage,
+  items.length,
+  isFetchingNextPage,
+  virtualizer.getVirtualItems(),
+]);
+```
+
+## Performance Optimization
+
+1. **Overscan Configuration**: Balance performance vs smooth scrolling
+
+```typescript
+const virtualizer = useVirtualizer({
+  count: items.length,
+  getScrollElement: () => parentRef.current,
+  estimateSize: () => 50,
+  overscan: 5,                   // Render 5 extra items on each side
+});
+```
+
+2. **Memoization**: Prevent unnecessary re-renders
+
+```typescript
+const VirtualItem = React.memo(({ item, style }: VirtualItemProps) => (
+  <div style={style}>
+    {/* Item content */}
+  </div>
+));
+
+// Memoize virtualizer configuration
+const virtualizerConfig = useMemo(() => ({
+  count: items.length,
+  getScrollElement: () => parentRef.current,
+  estimateSize: useCallback(() => 50, []),
+}), [items.length]);
+```
+
+3. **Stable Keys**: Use stable keys for virtual items
+
+```typescript
+// Good - stable key
+key={virtualItem.key}
+
+// Bad - using index as key
+key={virtualItem.index}
+```
+
+## Table Virtualization
+
+1. **Virtual Table Setup**: Implement efficient table virtualization
+
+```typescript
+const VirtualTable = ({ data, columns }: Props) => {
+  const rowVirtualizer = useVirtualizer({
+    count: data.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 50,
+  });
+
+  const columnVirtualizer = useVirtualizer({
+    count: columns.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: (index) => columns[index].width || 150,
+    horizontal: true,
+  });
+
+  return (
+    <div ref={parentRef} className="table-container">
+      <div
+        style={{
+          height: `${rowVirtualizer.getTotalSize()}px`,
+          width: `${columnVirtualizer.getTotalSize()}px`,
+          position: 'relative',
+        }}
+      >
+        {rowVirtualizer.getVirtualItems().map((virtualRow) => (
+          <div
+            key={virtualRow.key}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: `${virtualRow.size}px`,
+              transform: `translateY(${virtualRow.start}px)`,
+            }}
+          >
+            {columnVirtualizer.getVirtualItems().map((virtualColumn) => (
+              <div
+                key={virtualColumn.key}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  height: '100%',
+                  width: `${virtualColumn.size}px`,
+                  transform: `translateX(${virtualColumn.start}px)`,
+                }}
+              >
+                {data[virtualRow.index]?.[columns[virtualColumn.index].key]}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+```
+
+## Sticky Elements
+
+1. **Sticky Headers**: Implement sticky table headers
+
+```typescript
+const virtualizer = useVirtualizer({
+  count: items.length,
+  getScrollElement: () => parentRef.current,
+  estimateSize: () => 50,
+  scrollMargin: headerHeight,    // Account for sticky header
+});
+```
+
+2. **Sticky Columns**: Create sticky column implementation
+
+```typescript
+const StickyColumn = ({ children, width }: Props) => (
+  <div
+    style={{
+      position: 'sticky',
+      left: 0,
+      width,
+      zIndex: 1,
+      backgroundColor: 'white',
+    }}
+  >
+    {children}
+  </div>
+);
+```
+
+## Error Handling & Edge Cases
+
+1. **Handle Empty States**: Gracefully handle empty data
+
+```typescript
+if (items.length === 0) {
+  return <div>No items to display</div>;
+}
+```
+
+2. **Loading States**: Show loading indicators appropriately
+
+```typescript
+const renderItem = (virtualItem: VirtualItem) => {
+  const item = items[virtualItem.index];
+  
+  if (!item) {
+    return <div>Loading...</div>;  // Handle missing data
+  }
+  
+  return <ItemComponent item={item} />;
+};
+```
+
+3. **Scroll Restoration**: Maintain scroll position when needed
+
+```typescript
+const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
+
+useEffect(() => {
+  if (scrollElement && savedScrollTop !== undefined) {
+    scrollElement.scrollTop = savedScrollTop;
+  }
+}, [scrollElement, savedScrollTop]);
+```
+
+## Testing Patterns
+
+1. **Test Virtual Items**: Mock virtualizer for testing
+
+```typescript
+// Mock useVirtualizer
+jest.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: () => ({
+    getTotalSize: () => 1000,
+    getVirtualItems: () => [
+      { key: 0, index: 0, start: 0, size: 50 },
+      { key: 1, index: 1, start: 50, size: 50 },
+    ],
+  }),
+}));
+```
+
+2. **Integration Tests**: Test scroll behavior
+
+```typescript
+test('should load more items on scroll', async () => {
+  const { container } = render(<VirtualList />);
+  const scrollContainer = container.querySelector('[data-testid="scroll-container"]');
+  
+  fireEvent.scroll(scrollContainer!, { target: { scrollTop: 800 } });
+  
+  await waitFor(() => {
+    expect(mockFetchNextPage).toHaveBeenCalled();
+  });
+});
+```
+
+## Common Anti-Patterns
+
+1. **Don't use index as key**: Always use stable keys
+
+```typescript
+// Bad
+key={index}
+
+// Good
+key={virtualItem.key}
+```
+
+2. **Don't render all items**: Only render virtual items
+
+```typescript
+// Bad - renders all items
+{items.map((item, index) => <div key={index}>{item}</div>)}
+
+// Good - only renders visible items
+{virtualizer.getVirtualItems().map((virtualItem) => (
+  <div key={virtualItem.key}>
+    {items[virtualItem.index]}
+  </div>
+))}
+```
+
+3. **Don't skip container structure**: Always use proper container hierarchy
+
+```typescript
+// Bad - missing relative container
+<div ref={parentRef}>
+  {virtualItems.map(item => <div>{item}</div>)}
+</div>
+
+// Good - proper structure
+<div ref={parentRef}>
+  <div style={{ height: totalSize, position: 'relative' }}>
+    {virtualItems.map(item => 
+      <div style={{ position: 'absolute', transform: `translateY(${item.start}px)` }}>
+        {item}
+      </div>
+    )}
+  </div>
+</div>
+```
+
+## Accessibility
+
+1. **ARIA Labels**: Provide proper ARIA attributes
+
+```typescript
+<div
+  role="listbox"
+  aria-label={`List with ${items.length} items`}
+  aria-rowcount={items.length}
+>
+  {virtualizer.getVirtualItems().map((virtualItem) => (
+    <div
+      key={virtualItem.key}
+      role="option"
+      aria-rowindex={virtualItem.index + 1}
+      aria-selected={selectedIndex === virtualItem.index}
+    >
+      {/* Item content */}
+    </div>
+  ))}
+</div>
+```
+
+2. **Keyboard Navigation**: Implement proper keyboard support
+
+```typescript
+const handleKeyDown = (event: KeyboardEvent) => {
+  switch (event.key) {
+    case 'ArrowDown':
+      event.preventDefault();
+      setFocusedIndex(prev => Math.min(prev + 1, items.length - 1));
+      break;
+    case 'ArrowUp':
+      event.preventDefault();
+      setFocusedIndex(prev => Math.max(prev - 1, 0));
+      break;
+  }
+};
+```
+
+Remember: TanStack Virtual is about performance optimization for large datasets. Only use virtualization when you have performance issues with large lists (1000+ items).

@@ -1,8 +1,23 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "../trpc";
-import type { Table } from "@prisma/client";
+import { type Table, Prisma, type CellValue } from "@prisma/client";
+import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { faker } from "@faker-js/faker";
+
+interface RawTableRecord {
+  id: string;
+  created_at: Date;
+  table_id: string;
+  value: string | null;
+  field_id: string | null;
+}
+
+type TableRecordWithCellValues = {
+  id: string;
+  createdAt: Date;
+  tableId: string;
+  cellValues: CellValue[];
+};
 
 export const tableRouter = createTRPCRouter({
   create: protectedProcedure
@@ -41,7 +56,7 @@ export const tableRouter = createTRPCRouter({
         },
       });
 
-      // Create default fields (Name, Email, Phone, Address)
+      // Create default fields (Name, Email, Phone, Address, Age)
       const nameField = await ctx.db.field.create({
         data: {
           name: "Name",
@@ -72,6 +87,24 @@ export const tableRouter = createTRPCRouter({
           type: "text",
           order: 3,
           tableId: table.id,
+        },
+      });
+      const ageField = await ctx.db.field.create({
+        data: {
+          name: "Age",
+          type: "number",
+          order: 4,
+          tableId: table.id,
+        },
+      });
+
+      // Create default view
+      await ctx.db.view.create({
+        data: {
+          name: "Grid view",
+          tableId: table.id,
+          isDefault: true,
+          hiddenFields: [],
         },
       });
 
@@ -108,6 +141,11 @@ export const tableRouter = createTRPCRouter({
           fieldId: addressField.id,
           value: faker.location.streetAddress(),
         },
+        {
+          recordId: record.id,
+          fieldId: ageField.id,
+          value: String(faker.number.int({ min: 18, max: 80 })),
+        },
       ]);
 
       await ctx.db.cellValue.createMany({
@@ -121,9 +159,10 @@ export const tableRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string(),
-        skip: z.number().optional().default(0),
-        take: z.number().optional().default(10),
-        loadAll: z.boolean().optional().default(false),
+        limit: z.number().min(1).max(100).default(50),
+        cursor: z.string().optional(), // Use cursor for infinite query
+        viewId: z.string().optional(),
+        searchTerm: z.string().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -150,25 +189,348 @@ export const tableRouter = createTRPCRouter({
         });
       }
 
-      // Get total record count
-      const totalCount = await ctx.db.record.count({
-        where: { tableId: input.id },
-      });
-
-      // Get records from the database with their cell values, with pagination
-      const records = await ctx.db.record.findMany({
-        where: { tableId: input.id },
-        orderBy: { createdAt: "asc" },
-        skip: input.loadAll ? 0 : input.skip,
-        take: input.loadAll ? undefined : input.take,
-        include: {
-          cellValues: {
-            include: {
-              field: true,
+      // Get view if viewId is provided
+      let view = null;
+      if (input.viewId) {
+        view = await ctx.db.view.findUnique({
+          where: { id: input.viewId },
+          include: {
+            filters: {
+              include: {
+                field: true,
+              },
+            },
+            sorts: {
+              orderBy: { order: "asc" },
+              include: {
+                field: true,
+              },
             },
           },
-        },
-      });
+        });
+
+        if (!view) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "View not found",
+          });
+        }
+      }
+
+      // Build the where clause with proper type
+      const whereClause: Prisma.RecordWhereInput = {
+        tableId: input.id,
+      };
+
+      // Add cursor condition for pagination
+      if (input.cursor) {
+        whereClause.id = {
+          lt: input.cursor,
+        };
+      }
+
+      // Add search condition if search term exists
+      if (input.searchTerm?.trim()) {
+        whereClause.cellValues = {
+          some: {
+            value: {
+              contains: input.searchTerm.trim(),
+              mode: "insensitive",
+            },
+          },
+        };
+      }
+
+      // Add view filters
+      if (view?.filters && view.filters.length > 0) {
+        const filterConditions = view.filters.map(
+          (filter): Prisma.RecordWhereInput => {
+            if (filter.operator === "isEmpty") {
+              return {
+                cellValues: {
+                  none: {
+                    fieldId: filter.fieldId,
+                  },
+                },
+              };
+            }
+
+            if (filter.operator === "isNotEmpty") {
+              return {
+                cellValues: {
+                  some: {
+                    fieldId: filter.fieldId,
+                  },
+                },
+              };
+            }
+
+            const value = filter.value ?? "";
+            if (
+              !value &&
+              filter.operator !== "isEmpty" &&
+              filter.operator !== "isNotEmpty"
+            ) {
+              return { id: { not: "" } }; // Always true condition
+            }
+
+            switch (filter.operator) {
+              case "contains":
+                return {
+                  cellValues: {
+                    some: {
+                      fieldId: filter.fieldId,
+                      value: {
+                        contains: value,
+                        mode: "insensitive",
+                      },
+                    },
+                  },
+                };
+              case "notContains":
+                return {
+                  NOT: {
+                    cellValues: {
+                      some: {
+                        fieldId: filter.fieldId,
+                        value: {
+                          contains: value,
+                          mode: "insensitive",
+                        },
+                      },
+                    },
+                  },
+                };
+              case "equals":
+                return {
+                  cellValues: {
+                    some: {
+                      fieldId: filter.fieldId,
+                      value: value,
+                    },
+                  },
+                };
+              case "greaterThan":
+                return {
+                  cellValues: {
+                    some: {
+                      fieldId: filter.fieldId,
+                      value: {
+                        gt: value,
+                      },
+                    },
+                  },
+                };
+              case "lessThan":
+                return {
+                  cellValues: {
+                    some: {
+                      fieldId: filter.fieldId,
+                      value: {
+                        lt: value,
+                      },
+                    },
+                  },
+                };
+              default:
+                return { id: { not: "" } }; // Always true condition
+            }
+          },
+        );
+
+        whereClause.AND = filterConditions;
+      }
+
+      // Get records with proper sorting and cursor-based pagination
+      let records: TableRecordWithCellValues[] = [];
+      let nextCursor: string | undefined = undefined;
+
+      if (view?.sorts && view.sorts.length > 0) {
+        // Build dynamic ORDER BY clause for raw SQL with proper sort order
+        const sortClauses = view.sorts
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0)) // Ensure proper order
+          .map((sort) => {
+            const field = table.fields.find((f) => f.id === sort.fieldId);
+            if (!field) return null;
+
+            // Create a subquery to get the cell value for sorting
+            // Handle both text and number types appropriately
+            if (field.type === "number") {
+              return `(
+                SELECT COALESCE(CAST(cv."value" AS NUMERIC), 0) 
+                FROM "CellValue" cv 
+                WHERE cv."recordId" = r."id" 
+                AND cv."fieldId" = '${sort.fieldId}'
+                LIMIT 1
+              ) ${sort.direction.toUpperCase()}`;
+            } else {
+              return `(
+                SELECT COALESCE(cv."value", '') 
+                FROM "CellValue" cv 
+                WHERE cv."recordId" = r."id" 
+                AND cv."fieldId" = '${sort.fieldId}'
+                LIMIT 1
+              ) ${sort.direction.toUpperCase()}`;
+            }
+          })
+          .filter(Boolean)
+          .join(", ");
+
+        if (sortClauses) {
+          // Build WHERE clause for cursor pagination and filters
+          const conditions: string[] = [`r."tableId" = '${input.id}'`];
+
+          // For cursor pagination with custom sorting, we need to use offset instead of cursor
+          // This is because cursor-based pagination with complex sorting is very difficult to implement correctly
+          let offset = 0;
+          if (input.cursor) {
+            // Parse cursor as page number for offset-based pagination
+            try {
+              offset = parseInt(input.cursor) || 0;
+            } catch {
+              offset = 0;
+            }
+          }
+
+          // Apply additional filters from view
+          if (view.filters && view.filters.length > 0) {
+            for (const filter of view.filters) {
+              const field = table.fields.find((f) => f.id === filter.fieldId);
+              if (!field) continue;
+
+              const cellValueSubquery = `(
+                SELECT cv."value" 
+                FROM "CellValue" cv 
+                WHERE cv."recordId" = r."id" 
+                AND cv."fieldId" = '${filter.fieldId}'
+                LIMIT 1
+              )`;
+
+              switch (filter.operator) {
+                case "contains":
+                  if (filter.value) {
+                    conditions.push(
+                      `${cellValueSubquery} ILIKE '%${filter.value}%'`,
+                    );
+                  }
+                  break;
+                case "notContains":
+                  if (filter.value) {
+                    conditions.push(
+                      `(${cellValueSubquery} IS NULL OR ${cellValueSubquery} NOT ILIKE '%${filter.value}%')`,
+                    );
+                  }
+                  break;
+                case "equals":
+                  conditions.push(
+                    `${cellValueSubquery} = '${filter.value ?? ""}'`,
+                  );
+                  break;
+                case "isEmpty":
+                  conditions.push(
+                    `(${cellValueSubquery} IS NULL OR ${cellValueSubquery} = '')`,
+                  );
+                  break;
+                case "isNotEmpty":
+                  conditions.push(
+                    `${cellValueSubquery} IS NOT NULL AND ${cellValueSubquery} != ''`,
+                  );
+                  break;
+                case "greaterThan":
+                  if (filter.value && field.type === "number") {
+                    conditions.push(
+                      `CAST(${cellValueSubquery} AS NUMERIC) > ${parseFloat(filter.value)}`,
+                    );
+                  } else if (filter.value) {
+                    // For text fields, use string comparison
+                    conditions.push(`${cellValueSubquery} > '${filter.value}'`);
+                  }
+                  break;
+                case "lessThan":
+                  if (filter.value && field.type === "number") {
+                    conditions.push(
+                      `CAST(${cellValueSubquery} AS NUMERIC) < ${parseFloat(filter.value)}`,
+                    );
+                  } else if (filter.value) {
+                    // For text fields, use string comparison
+                    conditions.push(`${cellValueSubquery} < '${filter.value}'`);
+                  }
+                  break;
+              }
+            }
+          }
+
+          const whereClause = conditions.join(" AND ");
+
+          // Execute raw SQL query with offset-based pagination for sorting
+          const rawRecords = await ctx.db.$queryRaw<
+            Array<{ id: string; createdAt: Date; tableId: string }>
+          >`
+            SELECT r."id", r."createdAt", r."tableId"
+            FROM "Record" r
+            WHERE ${Prisma.raw(whereClause)}
+            ORDER BY ${Prisma.raw(sortClauses)}, r."createdAt" DESC
+            LIMIT ${input.limit + 1} OFFSET ${offset}
+          `;
+
+          // Get full records with cellValues, preserving order
+          if (rawRecords.length > 0) {
+            const recordsData = await ctx.db.record.findMany({
+              where: {
+                id: { in: rawRecords.map((r) => r.id) },
+              },
+              include: {
+                cellValues: true,
+              },
+            });
+
+            // Maintain the order from raw query
+            const recordMap = new Map(recordsData.map((r) => [r.id, r]));
+            records = rawRecords
+              .map((r) => recordMap.get(r.id)!)
+              .filter(Boolean);
+          }
+
+          // Update nextCursor to be offset-based for custom sorting
+          if (records.length > input.limit) {
+            records.pop(); // Remove the extra item
+            const nextOffset = offset + input.limit;
+            nextCursor = nextOffset.toString();
+          }
+        } else {
+          // Fallback to createdAt if no valid sorts
+          records = await ctx.db.record.findMany({
+            where: whereClause,
+            include: {
+              cellValues: true,
+            },
+            orderBy: { createdAt: "desc" },
+            take: input.limit + 1,
+          });
+
+          // Use normal cursor pagination for createdAt sorting
+          if (records.length > input.limit) {
+            const nextItem = records.pop(); // Remove the extra item
+            nextCursor = nextItem?.id;
+          }
+        }
+      } else {
+        // No sorting - use createdAt desc for consistent pagination
+        records = await ctx.db.record.findMany({
+          where: whereClause,
+          include: {
+            cellValues: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: input.limit + 1,
+        });
+
+        // Use normal cursor pagination for createdAt sorting
+        if (records.length > input.limit) {
+          const nextItem = records.pop(); // Remove the extra item
+          nextCursor = nextItem?.id;
+        }
+      }
 
       // Transform fields to columns
       const columns = table.fields.map((field) => ({
@@ -176,7 +538,8 @@ export const tableRouter = createTRPCRouter({
         name: field.name,
         type: field.type,
         width: field.name === "Name" ? 200 : 300,
-        fieldId: field.id, // Include the actual field ID for cell updates
+        fieldId: field.id,
+        hidden: view?.hiddenFields?.includes(field.id) ?? false,
       }));
 
       // Create rows based on records and their cell values
@@ -187,19 +550,10 @@ export const tableRouter = createTRPCRouter({
 
         // Fill in cell values from database
         columns.forEach((column) => {
-          // Find cell value for this column/field
-          const cellValue =
-            record.cellValues && Array.isArray(record.cellValues)
-              ? record.cellValues.find((cv) => cv.fieldId === column.fieldId)
-              : undefined;
-
-          // If cell value exists, use it, otherwise use default values
-          if (cellValue && cellValue.value) {
-            row[column.id] = cellValue.value;
-          } else {
-            // Use default values for empty cells based on column type
-            row[column.id] = null;
-          }
+          const cellValue = record.cellValues.find(
+            (cv: CellValue) => cv.fieldId === column.fieldId,
+          );
+          row[column.id] = cellValue?.value ?? null;
         });
 
         return row;
@@ -209,10 +563,7 @@ export const tableRouter = createTRPCRouter({
         table,
         columns,
         rows,
-        pagination: {
-          totalCount,
-          hasMore: input.loadAll ? false : input.skip + input.take < totalCount,
-        },
+        nextCursor,
       };
     }),
 
@@ -268,46 +619,57 @@ export const tableRouter = createTRPCRouter({
         });
       }
 
-      // 先获取所有相关的字段和记录
-      const fields = await ctx.db.field.findMany({
-        where: { tableId: input.id },
-      });
+      // Use a transaction with extended timeout for large datasets
+      await ctx.db.$transaction(
+        async (tx) => {
+          // Use the most efficient deletion strategy - delete from most dependent to least
 
-      const records = await ctx.db.record.findMany({
-        where: { tableId: input.id },
-      });
+          // Step 1: Delete all cell values (using raw SQL for efficiency)
+          await tx.$executeRaw`
+            DELETE FROM "CellValue" 
+            WHERE "fieldId" IN (
+              SELECT "id" FROM "Field" WHERE "tableId" = ${input.id}
+            )
+          `;
 
-      // 删除所有关联的单元格数据
-      // 注意：虽然 CellValue 有配置级联删除，但为了确保完全清理，我们先手动删除
-      if (fields.length > 0 || records.length > 0) {
-        await ctx.db.cellValue.deleteMany({
-          where: {
-            OR: [
-              { fieldId: { in: fields.map((field) => field.id) } },
-              { recordId: { in: records.map((record) => record.id) } },
-            ],
-          },
-        });
-      }
+          // Step 2: Delete sorts and filters in parallel
+          await Promise.all([
+            tx.$executeRaw`
+              DELETE FROM "Sort" 
+              WHERE "fieldId" IN (
+                SELECT "id" FROM "Field" WHERE "tableId" = ${input.id}
+              )
+            `,
+            tx.$executeRaw`
+              DELETE FROM "Filter" 
+              WHERE "fieldId" IN (
+                SELECT "id" FROM "Field" WHERE "tableId" = ${input.id}
+              )
+            `,
+            tx.$executeRaw`
+              DELETE FROM "View" WHERE "tableId" = ${input.id}
+            `,
+          ]);
 
-      // 删除所有字段
-      if (fields.length > 0) {
-        await ctx.db.field.deleteMany({
-          where: { tableId: input.id },
-        });
-      }
+          // Step 3: Delete records and fields in parallel
+          await Promise.all([
+            tx.$executeRaw`
+              DELETE FROM "Record" WHERE "tableId" = ${input.id}
+            `,
+            tx.$executeRaw`
+              DELETE FROM "Field" WHERE "tableId" = ${input.id}
+            `,
+          ]);
 
-      // 删除所有记录
-      if (records.length > 0) {
-        await ctx.db.record.deleteMany({
-          where: { tableId: input.id },
-        });
-      }
-
-      // 最后删除表本身
-      await ctx.db.table.delete({
-        where: { id: input.id },
-      });
+          // Step 4: Finally delete the table itself
+          await tx.table.delete({
+            where: { id: input.id },
+          });
+        },
+        {
+          timeout: 30000, // 30 seconds timeout
+        },
+      );
 
       return { success: true };
     }),
@@ -529,6 +891,8 @@ export const tableRouter = createTRPCRouter({
             value = faker.phone.number();
           } else if (field.name.toLowerCase() === "address") {
             value = faker.location.streetAddress();
+          } else if (field.name.toLowerCase() === "age") {
+            value = String(faker.number.int({ min: 18, max: 80 }));
           } else if (field.type === "text") {
             value = faker.lorem.word();
           } else if (field.type === "number") {
@@ -622,6 +986,8 @@ export const tableRouter = createTRPCRouter({
               value = faker.phone.number();
             } else if (field.name.toLowerCase() === "address") {
               value = faker.location.streetAddress();
+            } else if (field.name.toLowerCase() === "age") {
+              value = String(faker.number.int({ min: 18, max: 80 }));
             } else if (field.type === "text") {
               value = faker.lorem.word();
             } else if (field.type === "number") {

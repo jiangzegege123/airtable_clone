@@ -1,0 +1,234 @@
+# tRPC Development Rules for Cursor
+
+You are an expert tRPC developer. Follow these rules when working with tRPC projects:
+
+## Core Principles
+
+1. **Type Safety First**: Always leverage tRPC's end-to-end type safety. Never use `any` types in tRPC procedures.
+
+2. **No Code Generation**: Remember that tRPC doesn't require schemas or code generation - types are shared directly between client and server.
+
+3. **Full-Stack TypeScript**: Ensure both client and server are using TypeScript for maximum benefit.
+
+## Project Structure
+
+```
+src/
+├── server/
+│   ├── api/
+│   │   ├── routers/
+│   │   │   ├── user.ts
+│   │   │   ├── post.ts
+│   │   │   └── index.ts
+│   │   ├── trpc.ts          # tRPC router setup
+│   │   └── root.ts          # Root router
+│   └── db/                  # Database setup
+├── utils/
+│   └── api.ts              # tRPC client setup
+└── pages/api/trpc/
+    └── [trpc].ts           # API handler (Next.js)
+```
+
+## Router Development
+
+1. **Create modular routers**: Split functionality into separate router files
+
+```typescript
+// Good
+export const userRouter = router({
+  getProfile: publicProcedure
+    .input(z.object({ userId: z.string() }))
+    .query(async ({ input }) => {
+      // Implementation
+    }),
+});
+```
+
+2. **Use Zod for input validation**: Always validate inputs with Zod schemas
+
+```typescript
+import { z } from "zod";
+
+const createUserSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+});
+```
+
+3. **Proper error handling**: Use tRPC's built-in error handling
+
+```typescript
+import { TRPCError } from "@trpc/server";
+
+throw new TRPCError({
+  code: "NOT_FOUND",
+  message: "User not found",
+});
+```
+
+## Procedure Types
+
+1. **Query**: For data fetching (GET-like operations)
+
+```typescript
+.query(async ({ input, ctx }) => {
+  // Return data
+})
+```
+
+2. **Mutation**: For data modification (POST/PUT/DELETE-like operations)
+
+```typescript
+.mutation(async ({ input, ctx }) => {
+  // Modify data
+})
+```
+
+3. **Subscription**: For real-time data (use sparingly)
+
+```typescript
+.subscription(({ input, ctx }) => {
+  // Return observable
+})
+```
+
+## Context Management
+
+1. **Create typed context**: Always type your context properly
+
+```typescript
+export const createTRPCContext = async ({ req, res }: CreateContextOptions) => {
+  return {
+    user: await getUserFromRequest(req),
+    db: prisma,
+  };
+};
+
+export type Context = Awaited<ReturnType<typeof createTRPCContext>>;
+```
+
+2. **Use middleware for auth**: Implement reusable middleware
+
+```typescript
+const enforceUserIsAuthed = t.middleware(({ ctx, next }) => {
+  if (!ctx.user) {
+    throw new TRPCError({ code: "UNAUTHORIZED" });
+  }
+  return next({
+    ctx: {
+      user: ctx.user,
+    },
+  });
+});
+
+export const protectedProcedure = t.procedure.use(enforceUserIsAuthed);
+```
+
+## Client Usage
+
+1. **Type-safe client calls**: Always use the generated types
+
+```typescript
+// Good
+const user = await api.user.getProfile.query({ userId: "123" });
+
+// Bad - don't use fetch directly for tRPC endpoints
+```
+
+2. **Use React Query integration**: Leverage tRPC's React Query integration
+
+```typescript
+const { data, isLoading, error } = api.user.getProfile.useQuery({
+  userId: "123",
+});
+```
+
+3. **Optimistic updates**: Use tRPC's utilities for optimistic updates
+
+```typescript
+const utils = api.useUtils();
+
+const mutation = api.user.updateProfile.useMutation({
+  onMutate: async (newData) => {
+    await utils.user.getProfile.cancel();
+    utils.user.getProfile.setData({ userId: newData.userId }, newData);
+  },
+});
+```
+
+## Error Handling Best Practices
+
+1. **Use appropriate error codes**:
+
+   - `BAD_REQUEST`: Invalid input
+   - `UNAUTHORIZED`: Authentication required
+   - `FORBIDDEN`: Insufficient permissions
+   - `NOT_FOUND`: Resource doesn't exist
+   - `INTERNAL_SERVER_ERROR`: Unexpected errors
+
+2. **Provide meaningful error messages**: Always include helpful error messages for debugging
+
+## Performance Optimization
+
+1. **Request batching**: tRPC automatically batches requests made at the same time
+2. **Use subscriptions wisely**: Only use subscriptions when real-time updates are necessary
+3. **Implement proper caching**: Use React Query's caching features effectively
+
+## Security
+
+1. **Validate all inputs**: Use Zod schemas for comprehensive input validation
+2. **Implement proper authentication**: Use middleware for auth checks
+3. **Rate limiting**: Implement rate limiting for public endpoints
+4. **CORS configuration**: Properly configure CORS for production
+
+## Testing
+
+1. **Test procedures individually**: Create unit tests for each procedure
+
+```typescript
+const caller = appRouter.createCaller({
+  user: mockUser,
+  db: mockDb,
+});
+
+const result = await caller.user.getProfile({ userId: "123" });
+```
+
+2. **Integration tests**: Test the full client-server flow
+
+## Common Patterns
+
+1. **Pagination**: Implement cursor-based pagination
+
+```typescript
+.input(z.object({
+  limit: z.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+}))
+.query(async ({ input }) => {
+  const items = await getItems({
+    take: input.limit + 1,
+    cursor: input.cursor,
+  });
+
+  const nextCursor = items.length > input.limit ? items.pop()!.id : undefined;
+
+  return {
+    items,
+    nextCursor,
+  };
+})
+```
+
+2. **File uploads**: Handle file uploads through separate endpoints, reference in tRPC
+
+## Do NOT Do
+
+- Don't use tRPC for file uploads (use separate multipart endpoints)
+- Don't bypass input validation
+- Don't use any types in procedure definitions
+- Don't create overly complex nested routers
+- Don't forget to handle errors properly
+- Don't use subscriptions for simple polling scenarios
+
+Remember: tRPC's strength is in providing end-to-end type safety with minimal setup. Always leverage TypeScript's type system and tRPC's conventions for the best developer experience.
