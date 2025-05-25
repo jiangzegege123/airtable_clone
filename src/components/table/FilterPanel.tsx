@@ -94,9 +94,11 @@ export function FilterPanel({ tableId, viewId, onClose }: FilterPanelProps) {
 
   const handleAddFilter = () => {
     if (fields.length === 0) return;
+    const firstField = fields[0];
+    if (!firstField) return;
     addFilter.mutate({
       viewId,
-      fieldId: fields[0].id,
+      fieldId: firstField.id,
       operator: "contains",
       value: "",
     });
@@ -138,7 +140,7 @@ export function FilterPanel({ tableId, viewId, onClose }: FilterPanelProps) {
       operator:
         field === "operator" && isValidOperator(value)
           ? value
-          : filter.operator,
+          : (filter.operator as any),
       value: currentValue ? String(currentValue) : undefined,
     });
 
@@ -159,7 +161,7 @@ export function FilterPanel({ tableId, viewId, onClose }: FilterPanelProps) {
     updateFilter.mutate({
       id: filterId,
       fieldId: filter.fieldId,
-      operator: filter.operator,
+      operator: filter.operator as any,
       value: String(pendingValue ?? ""),
     });
 

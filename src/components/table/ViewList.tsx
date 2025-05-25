@@ -51,7 +51,7 @@ export function ViewList({
     },
   );
 
-  // 使用 useEffect 来处理默认视图的选择
+  // Use useEffect to handle default view selection
   useEffect(() => {
     // Remove automatic view selection logic as it's now handled in the parent component
     // This prevents conflicts and redundant view selections

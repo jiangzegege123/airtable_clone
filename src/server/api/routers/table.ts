@@ -108,7 +108,7 @@ export const tableRouter = createTRPCRouter({
         },
       });
 
-      // 生成 10 条假数据记录
+      // Generate 10 fake data records
       const records = await Promise.all(
         Array.from({ length: 10 }).map(() =>
           ctx.db.record.create({
@@ -119,7 +119,7 @@ export const tableRouter = createTRPCRouter({
         ),
       );
 
-      // 为每条记录生成对应的 cell values
+      // Generate corresponding cell values for each record
       const cellValuesData = records.flatMap((record) => [
         {
           recordId: record.id,
@@ -763,7 +763,7 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // 检查表是否存在及用户权限
+      // Check if table exists and user has access
       const table = await ctx.db.table.findUnique({
         where: { id: input.tableId },
         include: { base: { select: { ownerId: true } } },
@@ -783,12 +783,12 @@ export const tableRouter = createTRPCRouter({
         });
       }
 
-      // 获取现有字段数量，用于设置顺序
+      // Get existing field count for setting order
       const existingFields = await ctx.db.field.count({
         where: { tableId: input.tableId },
       });
 
-      // 创建新字段
+      // Create new field
       const newField = await ctx.db.field.create({
         data: {
           name: input.name,
@@ -798,17 +798,17 @@ export const tableRouter = createTRPCRouter({
         },
       });
 
-      // 获取表中所有记录
+      // Get all records in the table
       const records = await ctx.db.record.findMany({
         where: { tableId: input.tableId },
       });
 
-      // 为每条记录创建单元格值（使用 faker 生成假数据）
+      // Create cell values for each record (using faker to generate fake data)
       if (records.length > 0) {
         const cellValuesData = records.map((record) => {
           let value = null;
 
-          // 根据字段类型生成假数据
+          // Generate fake data based on field type
           if (input.type === "text") {
             value = faker.lorem.word();
           } else if (input.type === "email") {
@@ -828,7 +828,7 @@ export const tableRouter = createTRPCRouter({
           };
         });
 
-        // 批量创建单元格值
+        // Batch create cell values
         await ctx.db.cellValue.createMany({
           data: cellValuesData,
         });
@@ -847,7 +847,7 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // 检查表是否存在及用户权限
+      // Check if table exists and user has access
       const table = await ctx.db.table.findUnique({
         where: { id: input.tableId },
         include: {
@@ -870,19 +870,19 @@ export const tableRouter = createTRPCRouter({
         });
       }
 
-      // 创建新记录
+      // Create new record
       const newRecord = await ctx.db.record.create({
         data: {
           tableId: input.tableId,
         },
       });
 
-      // 为每个字段创建单元格值（使用 faker 生成假数据）
+      // Create cell values for each field (using faker to generate fake data)
       if (table.fields.length > 0) {
         const cellValuesData = table.fields.map((field) => {
           let value = null;
 
-          // 根据字段名称和类型生成适当的假数据
+          // Generate appropriate fake data based on field name and type
           if (field.name.toLowerCase() === "name") {
             value = faker.person.fullName();
           } else if (field.name.toLowerCase() === "email") {
@@ -906,7 +906,7 @@ export const tableRouter = createTRPCRouter({
           };
         });
 
-        // 批量创建单元格值
+        // Batch create cell values
         await ctx.db.cellValue.createMany({
           data: cellValuesData,
         });

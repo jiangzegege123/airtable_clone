@@ -1,19 +1,29 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { api } from "~/trpc/react";
-import { useEffect, useState, useRef, useMemo } from "react";
-import { Button } from "~/components/ui/button";
-import { Plus, Search, Filter, SortAsc, Database, X, Grid } from "lucide-react";
-import { Input } from "~/components/ui/input";
-import { TableView, MemoizedTableView } from "~/components/table/TableView";
-import type { Column } from "~/components/table/TableView";
-import { Tabs, TabsList } from "~/components/ui/tabs";
-import { useToast } from "~/components/ui/use-toast";
 import { Navbar } from "~/components/layout/Navbar";
+import { MemoizedTableView } from "~/components/table/TableView";
 import { ViewList } from "~/components/table/ViewList";
 import { FilterPanel } from "~/components/table/FilterPanel";
 import { SortPanel } from "~/components/table/SortPanel";
+import { Tabs, TabsList } from "~/components/ui/tabs";
+import { useToast } from "~/components/ui/use-toast";
+import { useState, useRef, useEffect, useMemo } from "react";
+import {
+  Filter,
+  ChevronDown,
+  Plus,
+  Search,
+  CirclePlay,
+  Database,
+  X,
+  Grid,
+  SortAsc,
+} from "lucide-react";
+import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
 
 interface TableRow {
   id: string;
@@ -284,10 +294,15 @@ export default function TablePage() {
       await utils.table.getById.cancel();
 
       // Snapshot the previous value for rollback
-      const previousData = utils.table.getById.getData();
+      const previousData = utils.table.getById.getInfiniteData({
+        id: variables.tableId,
+        limit: 50,
+        ...(activeViewId ? { viewId: activeViewId } : {}),
+        ...(searchTerm ? { searchTerm: searchTerm.trim() } : {}),
+      });
 
       // Optimistically update the frontend data
-      utils.table.getById.setData(
+      utils.table.getById.setInfiniteData(
         {
           id: variables.tableId,
           limit: 50,
@@ -328,7 +343,7 @@ export default function TablePage() {
     onError: (error, variables, context) => {
       // Rollback optimistic update on error
       if (context?.previousData) {
-        utils.table.getById.setData(
+        utils.table.getById.setInfiniteData(
           {
             id: variables.tableId,
             limit: 50,
