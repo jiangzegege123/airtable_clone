@@ -9,26 +9,12 @@ import {
 } from "~/components/ui/select";
 import { Input } from "~/components/ui/input";
 import { api } from "~/trpc/react";
-import { useState, useRef } from "react";
+import { useState } from "react";
 
 interface FilterPanelProps {
   tableId: string;
   viewId: string;
   onClose: (event?: React.MouseEvent) => void;
-}
-
-interface Filter {
-  id: string;
-  fieldId: string;
-  operator:
-    | "contains"
-    | "notContains"
-    | "equals"
-    | "isEmpty"
-    | "isNotEmpty"
-    | "greaterThan"
-    | "lessThan";
-  value: string | null;
 }
 
 const TEXT_OPERATORS = [
@@ -48,12 +34,20 @@ const NUMBER_OPERATORS = [
 ];
 
 export function FilterPanel({ tableId, viewId, onClose }: FilterPanelProps) {
-  const [filters, setFilters] = useState<Filter[]>([]);
   const [pendingValues, setPendingValues] = useState<Record<string, string>>(
     {},
   );
   const utils = api.useUtils();
-  const debounceTimers = useRef<Record<string, NodeJS.Timeout>>({});
+
+  // Define the operator type to match the server expectation
+  type OperatorType =
+    | "contains"
+    | "notContains"
+    | "equals"
+    | "isEmpty"
+    | "isNotEmpty"
+    | "greaterThan"
+    | "lessThan";
 
   // Fetch fields for the current table
   const { data: fields = [] } = api.field.list.useQuery(
@@ -122,7 +116,7 @@ export function FilterPanel({ tableId, viewId, onClose }: FilterPanelProps) {
     // First, get the current value (either pending or existing)
     const currentValue = pendingValues[filterId] ?? filter.value ?? "";
 
-    const isValidOperator = (op: string): op is Filter["operator"] => {
+    const isValidOperator = (op: string): op is OperatorType => {
       return [
         "contains",
         "notContains",
@@ -140,7 +134,7 @@ export function FilterPanel({ tableId, viewId, onClose }: FilterPanelProps) {
       operator:
         field === "operator" && isValidOperator(value)
           ? value
-          : (filter.operator as any),
+          : (filter.operator as OperatorType),
       value: currentValue ? String(currentValue) : undefined,
     });
 
@@ -161,7 +155,7 @@ export function FilterPanel({ tableId, viewId, onClose }: FilterPanelProps) {
     updateFilter.mutate({
       id: filterId,
       fieldId: filter.fieldId,
-      operator: filter.operator as any,
+      operator: filter.operator as OperatorType,
       value: String(pendingValue ?? ""),
     });
 

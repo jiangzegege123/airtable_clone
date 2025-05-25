@@ -97,18 +97,17 @@ export default function TablePage() {
       const target = event.target as Node;
 
       // Check if the click is inside any select dropdown (Radix UI portals these to body)
-      // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
       const isClickInsideSelectContent =
         target instanceof Element &&
-        (target.closest("[data-radix-select-content]") ||
-          target.closest("[data-radix-popper-content-wrapper]") ||
-          target.closest("[data-radix-select-viewport]") ||
-          target.closest("[data-radix-select-item]") ||
-          target.closest('[role="listbox"]') ||
-          target.closest('[role="option"]') ||
-          target.closest('[data-state="open"]') ||
+        (target.closest("[data-radix-select-content]") ??
+          target.closest("[data-radix-popper-content-wrapper]") ??
+          target.closest("[data-radix-select-viewport]") ??
+          target.closest("[data-radix-select-item]") ??
+          target.closest('[role="listbox"]') ??
+          target.closest('[role="option"]') ??
+          target.closest('[data-state="open"]') ??
           // Also check for any element with radix in the class or data attributes
-          target.getAttribute("data-radix-collection-item") !== null ||
+          target.getAttribute("data-radix-collection-item") !== null ??
           target.closest("[data-radix-collection-item]"));
 
       // Don't close panels if clicking inside select dropdowns
