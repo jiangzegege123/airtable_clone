@@ -488,8 +488,8 @@ export default function TablePage() {
   };
 
   const handleAddTable = () => {
-    const name = prompt("请输入新表的名称：");
-    if (!name || !name.trim()) return;
+    const name = prompt("Please enter the new table name:");
+    if (!name?.trim()) return;
     createTable.mutate({
       baseId,
       name: name.trim(),
