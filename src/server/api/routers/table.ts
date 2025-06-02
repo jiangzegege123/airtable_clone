@@ -3,6 +3,7 @@ import { type Table, Prisma, type CellValue } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { faker } from "@faker-js/faker";
+import { v4 as uuidv4 } from "uuid";
 
 interface RawTableRecord {
   id: string;
@@ -380,6 +381,18 @@ export const tableRouter = createTRPCRouter({
           // Build WHERE clause for cursor pagination and filters
           const conditions: string[] = [`r."tableId" = '${input.id}'`];
 
+          // 加入 searchTerm 条件
+          if (input.searchTerm?.trim()) {
+            const safeTerm = input.searchTerm.trim().replace(/'/g, "''");
+            conditions.push(`
+              EXISTS (
+                SELECT 1 FROM "CellValue" cv
+                WHERE cv."recordId" = r."id"
+                AND cv."value" ILIKE '%${safeTerm}%'
+              )
+            `);
+          }
+
           // For cursor pagination with custom sorting, we need to use offset instead of cursor
           // This is because cursor-based pagination with complex sorting is very difficult to implement correctly
           let offset = 0;
@@ -469,7 +482,7 @@ export const tableRouter = createTRPCRouter({
             SELECT r."id", r."createdAt", r."tableId"
             FROM "Record" r
             WHERE ${Prisma.raw(whereClause)}
-            ORDER BY ${Prisma.raw(sortClauses)}, r."createdAt" DESC
+            ORDER BY ${Prisma.raw(sortClauses)}, r."createdAt" ASC
             LIMIT ${input.limit + 1} OFFSET ${offset}
           `;
 
@@ -504,7 +517,7 @@ export const tableRouter = createTRPCRouter({
             include: {
               cellValues: true,
             },
-            orderBy: { createdAt: "desc" },
+            orderBy: { createdAt: "asc" },
             take: input.limit + 1,
           });
 
@@ -515,13 +528,13 @@ export const tableRouter = createTRPCRouter({
           }
         }
       } else {
-        // No sorting - use createdAt desc for consistent pagination
+        // No sorting - use createdAt asc for consistent pagination
         records = await ctx.db.record.findMany({
           where: whereClause,
           include: {
             cellValues: true,
           },
-          orderBy: { createdAt: "desc" },
+          orderBy: { createdAt: "asc" },
           take: input.limit + 1,
         });
 
@@ -534,7 +547,7 @@ export const tableRouter = createTRPCRouter({
 
       // Transform fields to columns
       const columns = table.fields.map((field) => ({
-        id: field.name.toLowerCase(),
+        id: field.id,
         name: field.name,
         type: field.type,
         width: field.name === "Name" ? 200 : 300,
@@ -619,59 +632,63 @@ export const tableRouter = createTRPCRouter({
         });
       }
 
-      // Use a transaction with extended timeout for large datasets
-      await ctx.db.$transaction(
-        async (tx) => {
-          // Use the most efficient deletion strategy - delete from most dependent to least
-
-          // Step 1: Delete all cell values (using raw SQL for efficiency)
-          await tx.$executeRaw`
-            DELETE FROM "CellValue" 
-            WHERE "fieldId" IN (
-              SELECT "id" FROM "Field" WHERE "tableId" = ${input.id}
-            )
-          `;
-
-          // Step 2: Delete sorts and filters in parallel
-          await Promise.all([
-            tx.$executeRaw`
-              DELETE FROM "Sort" 
-              WHERE "fieldId" IN (
-                SELECT "id" FROM "Field" WHERE "tableId" = ${input.id}
-              )
-            `,
-            tx.$executeRaw`
-              DELETE FROM "Filter" 
-              WHERE "fieldId" IN (
-                SELECT "id" FROM "Field" WHERE "tableId" = ${input.id}
-              )
-            `,
-            tx.$executeRaw`
-              DELETE FROM "View" WHERE "tableId" = ${input.id}
-            `,
-          ]);
-
-          // Step 3: Delete records and fields in parallel
-          await Promise.all([
-            tx.$executeRaw`
-              DELETE FROM "Record" WHERE "tableId" = ${input.id}
-            `,
-            tx.$executeRaw`
-              DELETE FROM "Field" WHERE "tableId" = ${input.id}
-            `,
-          ]);
-
-          // Step 4: Finally delete the table itself
-          await tx.table.delete({
-            where: { id: input.id },
-          });
+      // 分步删除，避免长事务超时
+      // Step 1: Delete all cell values
+      await ctx.db.cellValue.deleteMany({
+        where: {
+          fieldId: {
+            in: (
+              await ctx.db.field.findMany({
+                where: { tableId: input.id },
+                select: { id: true },
+              })
+            ).map((f) => f.id),
+          },
         },
-        {
-          timeout: 30000, // 30 seconds timeout
-        },
-      );
+      });
 
-      return { success: true };
+      // Step 2: Delete sorts
+      await ctx.db.sort.deleteMany({
+        where: {
+          fieldId: {
+            in: (
+              await ctx.db.field.findMany({
+                where: { tableId: input.id },
+                select: { id: true },
+              })
+            ).map((f) => f.id),
+          },
+        },
+      });
+
+      // Step 3: Delete filters
+      await ctx.db.filter.deleteMany({
+        where: {
+          fieldId: {
+            in: (
+              await ctx.db.field.findMany({
+                where: { tableId: input.id },
+                select: { id: true },
+              })
+            ).map((f) => f.id),
+          },
+        },
+      });
+
+      // Step 4: Delete views
+      await ctx.db.view.deleteMany({ where: { tableId: input.id } });
+
+      // Step 5: Delete records
+      await ctx.db.record.deleteMany({ where: { tableId: input.id } });
+
+      // Step 6: Delete fields
+      await ctx.db.field.deleteMany({ where: { tableId: input.id } });
+
+      // Step 7: Delete the table itself
+      await ctx.db.table.delete({ where: { id: input.id } });
+
+      // 返回 deleting 字段，前端可用来显示"正在删除"
+      return { success: true, deleting: true };
     }),
 
   updateCell: protectedProcedure
@@ -959,25 +976,13 @@ export const tableRouter = createTRPCRouter({
           totalRecords - i * batchSize,
         );
 
-        // Create records batch
-        const records = await ctx.db.record.createMany({
-          data: Array(recordsToCreate).fill({ tableId: input.tableId }),
-        });
+        // 1. 生成 uuid
+        const uuids = Array.from({ length: recordsToCreate }, () => uuidv4());
 
-        // Get the created record IDs
-        const createdRecords = await ctx.db.record.findMany({
-          where: { tableId: input.tableId },
-          orderBy: { createdAt: "desc" },
-          take: recordsToCreate,
-          select: { id: true },
-        });
-
-        // Generate cell values for each record
-        const cellValuesData = createdRecords.flatMap((record) =>
+        // 2. 生成 cell values
+        const cellValuesData = uuids.flatMap((id) =>
           table.fields.map((field) => {
             let value = null;
-
-            // Generate appropriate fake data based on field name/type
             if (field.name.toLowerCase() === "name") {
               value = faker.person.fullName();
             } else if (field.name.toLowerCase() === "email") {
@@ -993,19 +998,26 @@ export const tableRouter = createTRPCRouter({
             } else if (field.type === "number") {
               value = String(faker.number.int(100));
             }
-
             return {
-              recordId: record.id,
+              recordId: id,
               fieldId: field.id,
               value,
             };
           }),
         );
 
-        // Create cell values batch
-        await ctx.db.cellValue.createMany({
-          data: cellValuesData,
-        });
+        // 3. 用事务批量插入 record 和 cellValue
+        await ctx.db.$transaction([
+          ctx.db.record.createMany({
+            data: uuids.map((id) => ({
+              id,
+              tableId: input.tableId,
+            })),
+          }),
+          ctx.db.cellValue.createMany({
+            data: cellValuesData,
+          }),
+        ]);
       }
 
       return {

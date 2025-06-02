@@ -140,8 +140,7 @@ export function TableView({
     <div className="flex flex-col">
       <div
         ref={parentRef}
-        className="relative overflow-auto rounded-md border border-gray-200"
-        style={{ height: "calc(100vh - 160px)" }}
+        className="relative h-full overflow-auto rounded-md border border-gray-200"
       >
         {/* Header */}
         <div className="sticky top-0 z-10 bg-gray-50">

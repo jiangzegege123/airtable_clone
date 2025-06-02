@@ -374,14 +374,18 @@ export default function TablePage() {
 
   // Simplified addRowMutation with infinite query invalidation
   const addRowMutation = api.table.addRow.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       toast({
         title: "Row added successfully",
         duration: 2000,
         variant: "success",
       });
       // Invalidate and refetch the infinite query
-      void utils.table.getById.invalidate().catch(console.error);
+      await utils.table.getById.invalidate().catch(console.error);
+      // 自动跳到最后一页
+      while (hasNextPage) {
+        await fetchNextPage();
+      }
     },
     onError: (error) => {
       toast({
@@ -484,9 +488,11 @@ export default function TablePage() {
   };
 
   const handleAddTable = () => {
+    const name = prompt("请输入新表的名称：");
+    if (!name || !name.trim()) return;
     createTable.mutate({
       baseId,
-      name: `Table ${tables.length + 1}`,
+      name: name.trim(),
     });
   };
 
@@ -532,255 +538,240 @@ export default function TablePage() {
   }
 
   return (
-    <div className="flex h-screen flex-col">
-      <Navbar />
+    <div className="flex min-h-0 flex-col">
+      <Navbar showBaseInfo baseId={baseId} />
 
-      {/* Show loading screen for the entire page until data is ready */}
-      {isLoading ? (
-        <div className="flex flex-1 items-center justify-center">
-          <div className="text-lg">Loading table data...</div>
+      {/* Table Tabs Bar */}
+      <div className="bg-[#59427F]">
+        <div className="flex h-[35px] items-center gap-2 px-4">
+          <Tabs
+            value={tableId}
+            onValueChange={handleTableSelect}
+            className="h-full flex-1"
+          >
+            <TabsList className="h-[35px] bg-transparent">
+              {tables.map((table) => (
+                <div key={table.id} className="relative flex items-center">
+                  <div
+                    className={`flex h-[35px] cursor-pointer items-center gap-2 rounded-none border-x border-t border-transparent bg-transparent px-4 transition-colors ${
+                      table.id === tableId
+                        ? "rounded-t-lg border-b-0 border-white bg-white font-medium text-[#59427F]"
+                        : "text-white hover:text-white/90"
+                    }`}
+                    onClick={() => handleTableSelect(table.id)}
+                  >
+                    <span className="relative z-10">{table.name}</span>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Delete table"
+                      className={`relative z-10 ml-1 cursor-pointer rounded-full p-0.5 transition-colors ${
+                        table.id === tableId
+                          ? "text-gray-500 hover:bg-gray-100"
+                          : "text-white hover:bg-[#7456A5]"
+                      }`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteTable(table.id);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.stopPropagation();
+                          handleDeleteTable(table.id);
+                        }
+                      }}
+                    >
+                      <X className="h-3 w-3" />
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </TabsList>
+          </Tabs>
+          {tables.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 text-white hover:bg-[#7456A5] hover:text-white"
+              onClick={handleAddTable}
+            >
+              <Plus className="h-4 w-4" />
+              Add table
+            </Button>
+          )}
         </div>
-      ) : (
-        <>
-          {/* Table Tabs Bar */}
-          <div className="bg-[#59427F]">
-            <div className="flex h-[35px] items-center gap-2 px-4">
-              <Tabs
-                value={tableId}
-                onValueChange={handleTableSelect}
-                className="h-full flex-1"
-              >
-                <TabsList className="h-[35px] bg-transparent">
-                  {tables.map((table) => (
-                    <div key={table.id} className="relative flex items-center">
-                      <div
-                        className={`flex h-[35px] cursor-pointer items-center gap-2 rounded-none border-x border-t border-transparent bg-transparent px-4 transition-colors ${
-                          table.id === tableId
-                            ? "rounded-t-lg border-b-0 border-white bg-white font-medium text-[#59427F]"
-                            : "text-white hover:text-white/90"
-                        }`}
-                        onClick={() => handleTableSelect(table.id)}
-                      >
-                        <span className="relative z-10">{table.name}</span>
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          aria-label="Delete table"
-                          className={`relative z-10 ml-1 cursor-pointer rounded-full p-0.5 transition-colors ${
-                            table.id === tableId
-                              ? "text-gray-500 hover:bg-gray-100"
-                              : "text-white hover:bg-[#7456A5]"
-                          }`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteTable(table.id);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.stopPropagation();
-                              handleDeleteTable(table.id);
-                            }
-                          }}
-                        >
-                          <X className="h-3 w-3" />
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </TabsList>
-              </Tabs>
+      </div>
+
+      {/* Toolbar */}
+      <div className="relative border-b bg-white px-6 py-2">
+        <div className="flex h-[41px] items-center justify-between">
+          {/* Left: Control Buttons */}
+          <div className="flex items-center space-x-3">
+            {/* Views Button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowViewsSidebar(!showViewsSidebar)}
+              className={showViewsSidebar ? "border-blue-200 bg-blue-50" : ""}
+            >
+              <Grid className="mr-2 h-4 w-4" />
+              Views
+            </Button>
+
+            {/* Filter */}
+            <div className="relative">
               <Button
-                variant="ghost"
+                ref={filterButtonRef}
+                variant="outline"
                 size="sm"
-                className="h-8 px-2 text-white hover:bg-[#7456A5] hover:text-white"
-                onClick={handleAddTable}
+                onClick={() => setShowFilterPanel(!showFilterPanel)}
+                className={showFilterPanel ? "border-blue-200 bg-blue-50" : ""}
               >
-                <Plus className="h-4 w-4" />
-                Add table
+                <Filter className="mr-2 h-4 w-4" />
+                Filter
               </Button>
-            </div>
-          </div>
 
-          {/* Toolbar */}
-          <div className="relative border-b bg-white px-6 py-2">
-            <div className="flex h-[41px] items-center justify-between">
-              {/* Left: Control Buttons */}
-              <div className="flex items-center space-x-3">
-                {/* Views Button */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowViewsSidebar(!showViewsSidebar)}
-                  className={
-                    showViewsSidebar ? "border-blue-200 bg-blue-50" : ""
-                  }
+              {/* Filter Panel Dropdown */}
+              {showFilterPanel && activeViewId && (
+                <div
+                  ref={filterPanelRef}
+                  className="absolute top-full left-0 z-50 mt-2 w-[600px] rounded-lg border border-gray-200 bg-white shadow-lg"
                 >
-                  <Grid className="mr-2 h-4 w-4" />
-                  Views
-                </Button>
-
-                {/* Filter */}
-                <div className="relative">
-                  <Button
-                    ref={filterButtonRef}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowFilterPanel(!showFilterPanel)}
-                    className={
-                      showFilterPanel ? "border-blue-200 bg-blue-50" : ""
-                    }
-                  >
-                    <Filter className="mr-2 h-4 w-4" />
-                    Filter
-                  </Button>
-
-                  {/* Filter Panel Dropdown */}
-                  {showFilterPanel && activeViewId && (
-                    <div
-                      ref={filterPanelRef}
-                      className="absolute top-full left-0 z-50 mt-2 w-[600px] rounded-lg border border-gray-200 bg-white shadow-lg"
-                    >
-                      <FilterPanel
-                        viewId={activeViewId}
-                        onClose={() => setShowFilterPanel(false)}
-                        tableId={tableId}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Sort */}
-                <div className="relative">
-                  <Button
-                    ref={sortButtonRef}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowSortPanel(!showSortPanel)}
-                    className={
-                      showSortPanel ? "border-blue-200 bg-blue-50" : ""
-                    }
-                  >
-                    <SortAsc className="mr-2 h-4 w-4" />
-                    Sort
-                  </Button>
-
-                  {/* Sort Panel Dropdown */}
-                  {showSortPanel && activeViewId && (
-                    <div
-                      ref={sortPanelRef}
-                      className="absolute top-full left-0 z-50 mt-2 w-96 rounded-lg border border-gray-200 bg-white shadow-lg"
-                    >
-                      <SortPanel
-                        viewId={activeViewId}
-                        onClose={() => setShowSortPanel(false)}
-                        tableId={tableId}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Add 100k Rows */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleAdd100kRows}
-                  disabled={add100kRowsMutation.isPending}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  {add100kRowsMutation.isPending
-                    ? "Adding..."
-                    : "Add 100k Rows"}
-                </Button>
-              </div>
-
-              {/* Right: Search */}
-              <div className="flex items-center">
-                <div className="relative">
-                  <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                  <Input
-                    placeholder="Search..."
-                    className="w-64 pl-10"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                  <FilterPanel
+                    viewId={activeViewId}
+                    onClose={() => setShowFilterPanel(false)}
+                    tableId={tableId}
                   />
                 </div>
-              </div>
+              )}
             </div>
-          </div>
 
-          {/* Main Content Area with Sidebar */}
-          <div className="flex flex-1 overflow-hidden">
-            {/* Views Sidebar */}
-            {showViewsSidebar && (
-              <div className="w-64 flex-shrink-0 border-r bg-gray-50">
-                <div className="p-4">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h3 className="text-sm font-medium text-gray-700">Views</h3>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0 hover:bg-gray-200"
-                      onClick={() => setShowViewsSidebar(false)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  {views.length > 0 && (
-                    <ViewList
-                      activeViewId={activeViewId}
-                      onViewSelect={handleViewSelect}
-                      tableId={tableId}
-                    />
-                  )}
+            {/* Sort */}
+            <div className="relative">
+              <Button
+                ref={sortButtonRef}
+                variant="outline"
+                size="sm"
+                onClick={() => setShowSortPanel(!showSortPanel)}
+                className={showSortPanel ? "border-blue-200 bg-blue-50" : ""}
+              >
+                <SortAsc className="mr-2 h-4 w-4" />
+                Sort
+              </Button>
+
+              {/* Sort Panel Dropdown */}
+              {showSortPanel && activeViewId && (
+                <div
+                  ref={sortPanelRef}
+                  className="absolute top-full left-0 z-50 mt-2 w-96 rounded-lg border border-gray-200 bg-white shadow-lg"
+                >
+                  <SortPanel
+                    viewId={activeViewId}
+                    onClose={() => setShowSortPanel(false)}
+                    tableId={tableId}
+                  />
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
-            {/* Table Content */}
-            <div className="flex flex-1 flex-col">
-              {/* Table Content */}
-              <div className="flex-1 overflow-hidden">
-                {tableId ? (
-                  <div
-                    className="table-container h-full overflow-auto overscroll-none"
-                    style={{
-                      overscrollBehavior: "contain",
-                      WebkitOverflowScrolling: "touch",
-                    }}
-                    data-table-id={tableId}
-                  >
-                    <MemoizedTableView
-                      columns={visibleColumns}
-                      rows={filteredRows}
-                      onAddRow={handleAddRow}
-                      onAddColumn={handleAddColumn}
-                      onUpdateCell={handleUpdateCell}
-                      showAddRowButton={!hasNextPage}
-                      hasNextPage={hasNextPage}
-                      isFetchingNextPage={isFetchingNextPage}
-                      fetchNextPage={fetchNextPage}
-                    />
-                  </div>
-                ) : tables.length === 0 ? (
-                  <div className="flex h-full flex-col items-center justify-center">
-                    <Database className="h-12 w-12 text-gray-300" />
-                    <p className="mt-4 text-lg font-medium text-gray-500">
-                      No tables found
-                    </p>
-                    <p className="text-sm text-gray-400">
-                      Create a new table to get started
-                    </p>
-                    <Button className="mt-4" onClick={handleAddTable}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Create Table
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
+            {/* Add 100k Rows */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAdd100kRows}
+              disabled={add100kRowsMutation.isPending}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              {add100kRowsMutation.isPending ? "Adding..." : "Add 100k Rows"}
+            </Button>
+          </div>
+
+          {/* Right: Search */}
+          <div className="flex items-center">
+            <div className="relative">
+              <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                placeholder="Search..."
+                className="w-64 pl-10"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
             </div>
           </div>
-        </>
-      )}
+        </div>
+      </div>
+
+      {/* Main Content Area with Sidebar */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Views Sidebar */}
+        {showViewsSidebar && (
+          <div className="w-64 flex-shrink-0 border-r bg-gray-50">
+            <div className="p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-medium text-gray-700">Views</h3>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 hover:bg-gray-200"
+                  onClick={() => setShowViewsSidebar(false)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              {views.length > 0 && (
+                <ViewList
+                  activeViewId={activeViewId}
+                  onViewSelect={handleViewSelect}
+                  tableId={tableId}
+                />
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Table Content */}
+        <div className="flex flex-1 flex-col">
+          {/* Table Content */}
+          <div className="flex-1 overflow-hidden">
+            {tableId ? (
+              <div
+                className="table-container h-full overflow-auto overscroll-none"
+                style={{
+                  overscrollBehavior: "contain",
+                  WebkitOverflowScrolling: "touch",
+                }}
+                data-table-id={tableId}
+              >
+                <MemoizedTableView
+                  columns={visibleColumns}
+                  rows={filteredRows}
+                  onAddRow={handleAddRow}
+                  onAddColumn={handleAddColumn}
+                  onUpdateCell={handleUpdateCell}
+                  showAddRowButton={!hasNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                  fetchNextPage={fetchNextPage}
+                />
+              </div>
+            ) : tables.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center">
+                <Database className="h-12 w-12 text-gray-300" />
+                <p className="mt-4 text-lg font-medium text-gray-500">
+                  No tables found
+                </p>
+                <p className="text-sm text-gray-400">
+                  Create a new table to get started
+                </p>
+                <Button className="mt-4" onClick={handleAddTable}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create Table
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
