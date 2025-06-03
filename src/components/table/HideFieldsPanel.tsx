@@ -18,9 +18,11 @@ export default function HideFieldsPanel({
   const allHidden = hiddenFields.length === columns.length;
 
   const handleToggle = (id: string) => {
-    setHiddenFields((prev: string[]) =>
-      prev.includes(id) ? prev.filter((fid) => fid !== id) : [...prev, id],
-    );
+    if (hiddenFields.includes(id)) {
+      setHiddenFields(hiddenFields.filter((fid) => fid !== id));
+    } else {
+      setHiddenFields([...hiddenFields, id]);
+    }
   };
 
   const handleHideAll = () => setHiddenFields(columns.map((col) => col.id));
