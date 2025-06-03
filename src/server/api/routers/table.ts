@@ -155,7 +155,7 @@ export const tableRouter = createTRPCRouter({
         // 防御性处理，确保 value 只可能是 string/number/Prisma.JsonNull
         return arr.map((cell) => {
           let v = cell.value;
-          if (v === undefined || v === null) v = Prisma.JsonNull;
+          v ??= Prisma.JsonNull;
           if (
             typeof v !== "string" &&
             typeof v !== "number" &&
@@ -519,10 +519,10 @@ export const tableRouter = createTRPCRouter({
             v = JSON.stringify(v);
           } else if (typeof v === "boolean") {
             v = v ? 1 : 0;
-          } else if (v === null || v === undefined) {
-            v = null;
+          } else {
+            v ??= null;
           }
-          row[column.id] = v as string | number | null;
+          row[column.id] = v;
         });
 
         return row;
