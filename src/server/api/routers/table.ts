@@ -156,13 +156,10 @@ export const tableRouter = createTRPCRouter({
         return arr.map((cell) => {
           let v = cell.value;
           v ??= Prisma.JsonNull;
-          if (
-            typeof v !== "string" &&
-            typeof v !== "number" &&
-            v !== Prisma.JsonNull
-          )
+          // 只允许 string/number/null
+          if (typeof v !== "string" && typeof v !== "number") {
             v = Prisma.JsonNull;
-          if (v !== Prisma.JsonNull) v = JSON.stringify(v);
+          }
           return { ...cell, value: v };
         });
       });
@@ -265,7 +262,7 @@ export const tableRouter = createTRPCRouter({
             // Handle both text and number types appropriately
             if (field.type === "number") {
               return `(
-                SELECT COALESCE((cv."value"::jsonb)::numeric, 0)
+                SELECT COALESCE((cv."value")::numeric, 0)
                 FROM "CellValue" cv
                 WHERE cv."recordId" = r."id"
                 AND cv."fieldId" = '${sort.fieldId}'
@@ -273,7 +270,7 @@ export const tableRouter = createTRPCRouter({
               ) ${sort.direction.toUpperCase()}`;
             } else {
               return `(
-                SELECT COALESCE(cv."value"->>'' , '')
+                SELECT COALESCE((cv."value")::text, '')
                 FROM "CellValue" cv
                 WHERE cv."recordId" = r."id"
                 AND cv."fieldId" = '${sort.fieldId}'
@@ -318,50 +315,58 @@ export const tableRouter = createTRPCRouter({
                 case "contains":
                   if (filter.value) {
                     conditions.push(
-                      `${cellValueSubquery} ILIKE '%${filter.value}%'`,
+                      `(${cellValueSubquery})::text ILIKE '%${filter.value}%'`,
                     );
                   }
                   break;
                 case "notContains":
                   if (filter.value) {
                     conditions.push(
-                      `(${cellValueSubquery} IS NULL OR ${cellValueSubquery} NOT ILIKE '%${filter.value}%')`,
+                      `(${cellValueSubquery}) IS NULL OR (${cellValueSubquery})::text NOT ILIKE '%${filter.value}%'`,
                     );
                   }
                   break;
                 case "equals":
-                  conditions.push(
-                    `${cellValueSubquery} = '${filter.value ?? ""}'`,
-                  );
+                  if (field.type === "number") {
+                    conditions.push(
+                      `CAST((${cellValueSubquery}) AS NUMERIC) = ${parseFloat(filter.value ?? "0")}`,
+                    );
+                  } else {
+                    conditions.push(
+                      `(${cellValueSubquery})::text = '${filter.value ?? ""}'`,
+                    );
+                  }
                   break;
                 case "isEmpty":
                   conditions.push(
-                    `(${cellValueSubquery} IS NULL OR ${cellValueSubquery} = '')`,
+                    `(${cellValueSubquery}) IS NULL OR (${cellValueSubquery})::text = ''`,
                   );
                   break;
                 case "isNotEmpty":
                   conditions.push(
-                    `${cellValueSubquery} IS NOT NULL AND ${cellValueSubquery} != ''`,
+                    `(${cellValueSubquery}) IS NOT NULL AND (${cellValueSubquery})::text != ''`,
                   );
                   break;
                 case "greaterThan":
                   if (filter.value && field.type === "number") {
                     conditions.push(
-                      `CAST(${cellValueSubquery} AS NUMERIC) > ${parseFloat(filter.value)}`,
+                      `CAST((${cellValueSubquery}) AS NUMERIC) > ${parseFloat(filter.value)}`,
                     );
                   } else if (filter.value) {
-                    // For text fields, use string comparison
-                    conditions.push(`${cellValueSubquery} > '${filter.value}'`);
+                    conditions.push(
+                      `(${cellValueSubquery})::text > '${filter.value}'`,
+                    );
                   }
                   break;
                 case "lessThan":
                   if (filter.value && field.type === "number") {
                     conditions.push(
-                      `CAST(${cellValueSubquery} AS NUMERIC) < ${parseFloat(filter.value)}`,
+                      `CAST((${cellValueSubquery}) AS NUMERIC) < ${parseFloat(filter.value)}`,
                     );
                   } else if (filter.value) {
-                    // For text fields, use string comparison
-                    conditions.push(`${cellValueSubquery} < '${filter.value}'`);
+                    conditions.push(
+                      `(${cellValueSubquery})::text < '${filter.value}'`,
+                    );
                   }
                   break;
               }
@@ -515,12 +520,8 @@ export const tableRouter = createTRPCRouter({
             (cv: CellValue) => cv.fieldId === column.fieldId,
           );
           let v = cellValue?.value;
-          if (typeof v === "object" && v !== null) {
-            v = JSON.stringify(v);
-          } else if (typeof v === "boolean") {
-            v = v ? 1 : 0;
-          } else {
-            v ??= null;
+          if (typeof v !== "string" && typeof v !== "number") {
+            v = null;
           }
           row[column.id] = v;
         });
@@ -798,13 +799,14 @@ export const tableRouter = createTRPCRouter({
 
         // Batch create cell values
         await ctx.db.cellValue.createMany({
-          data: cellValuesData.map((cell) => ({
-            ...cell,
-            value:
-              cell.value === Prisma.JsonNull
-                ? Prisma.JsonNull
-                : JSON.stringify(cell.value),
-          })),
+          data: cellValuesData.map((cell) => {
+            let v = cell.value;
+            v ??= Prisma.JsonNull;
+            if (typeof v !== "string" && typeof v !== "number") {
+              v = Prisma.JsonNull;
+            }
+            return { ...cell, value: v };
+          }),
         });
       }
 
@@ -881,13 +883,14 @@ export const tableRouter = createTRPCRouter({
 
         // Batch create cell values
         await ctx.db.cellValue.createMany({
-          data: cellValuesData.map((cell) => ({
-            ...cell,
-            value:
-              cell.value === Prisma.JsonNull
-                ? Prisma.JsonNull
-                : JSON.stringify(cell.value),
-          })),
+          data: cellValuesData.map((cell) => {
+            let v = cell.value;
+            v ??= Prisma.JsonNull;
+            if (typeof v !== "string" && typeof v !== "number") {
+              v = Prisma.JsonNull;
+            }
+            return { ...cell, value: v };
+          }),
         });
       }
 
@@ -989,13 +992,14 @@ export const tableRouter = createTRPCRouter({
               })),
             }),
             ctx.db.cellValue.createMany({
-              data: cellValuesData.map((cv) => ({
-                ...cv,
-                value:
-                  cv.value === Prisma.JsonNull
-                    ? Prisma.JsonNull
-                    : JSON.stringify(cv.value),
-              })),
+              data: cellValuesData.map((cv) => {
+                let v = cv.value;
+                v ??= Prisma.JsonNull;
+                if (typeof v !== "string" && typeof v !== "number") {
+                  v = Prisma.JsonNull;
+                }
+                return { ...cv, value: v };
+              }),
             }),
           ]);
         } catch (err) {
