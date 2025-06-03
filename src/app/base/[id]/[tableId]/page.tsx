@@ -21,9 +21,11 @@ import {
   X,
   Grid,
   SortAsc,
+  EyeOff,
 } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
+import HideFieldsPanel from "~/components/table/HideFieldsPanel";
 
 interface TableRow {
   id: string;
@@ -42,12 +44,16 @@ export default function TablePage() {
   const [showSortPanel, setShowSortPanel] = useState(false);
   const [isViewLoading, setIsViewLoading] = useState(false);
   const [showViewsSidebar, setShowViewsSidebar] = useState(false);
+  const [showHideFieldsPanel, setShowHideFieldsPanel] = useState(false);
 
   const loadingViewIdRef = useRef<string | undefined>(undefined);
   const filterButtonRef = useRef<HTMLButtonElement>(null);
   const sortButtonRef = useRef<HTMLButtonElement>(null);
   const filterPanelRef = useRef<HTMLDivElement>(null);
   const sortPanelRef = useRef<HTMLDivElement>(null);
+  const hideFieldsButtonRef = useRef<HTMLButtonElement>(null);
+  const hideFieldsPanelRef = useRef<HTMLDivElement>(null);
+  const [hiddenFields, setHiddenFields] = useState<string[]>([]);
 
   // Fetch session and base data
   const { data: session, isLoading: isLoadingSession } =
@@ -136,13 +142,24 @@ export default function TablePage() {
           setShowSortPanel(false);
         }
       }
+
+      // Check if hide fields panel should close
+      if (showHideFieldsPanel) {
+        const isClickInsideHideFieldsButton =
+          hideFieldsButtonRef.current?.contains(target);
+        const isClickInsideHideFieldsPanel =
+          hideFieldsPanelRef.current?.contains(target);
+        if (!isClickInsideHideFieldsButton && !isClickInsideHideFieldsPanel) {
+          setShowHideFieldsPanel(false);
+        }
+      }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [showFilterPanel, showSortPanel]);
+  }, [showFilterPanel, showSortPanel, showHideFieldsPanel]);
 
   const createTable = api.table.create.useMutation({
     onSuccess: () => {
@@ -283,8 +300,8 @@ export default function TablePage() {
 
   // Memoize filtered columns to prevent unnecessary re-renders
   const visibleColumns = useMemo(() => {
-    return columns.filter((col) => !col.hidden);
-  }, [columns]);
+    return columns.filter((col) => !hiddenFields.includes(col.id));
+  }, [columns, hiddenFields]);
 
   // Force refresh current table data after cell update
   const updateCellMutation = api.table.updateCell.useMutation({
@@ -669,6 +686,35 @@ export default function TablePage() {
                     viewId={activeViewId}
                     onClose={() => setShowSortPanel(false)}
                     tableId={tableId}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Hide Fields */}
+            <div className="relative">
+              <Button
+                ref={hideFieldsButtonRef}
+                variant="outline"
+                size="sm"
+                onClick={() => setShowHideFieldsPanel(!showHideFieldsPanel)}
+                className={
+                  showHideFieldsPanel ? "border-blue-200 bg-blue-50" : ""
+                }
+              >
+                <EyeOff className="mr-2 h-4 w-4" />
+                Hide fields
+              </Button>
+              {showHideFieldsPanel && (
+                <div
+                  ref={hideFieldsPanelRef}
+                  className="absolute top-full left-0 z-50 mt-2 w-[340px] rounded-lg border border-gray-200 bg-white shadow-lg"
+                >
+                  <HideFieldsPanel
+                    columns={columns}
+                    hiddenFields={hiddenFields}
+                    setHiddenFields={setHiddenFields}
+                    onClose={() => setShowHideFieldsPanel(false)}
                   />
                 </div>
               )}
