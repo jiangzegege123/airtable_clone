@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useLayoutEffect } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
@@ -243,19 +243,31 @@ export function TableView({
                       <div
                         key={`${row.id}-${column.id}`}
                         className={cn(
-                          "cursor-cell border-r border-gray-200 px-4 py-2",
+                          "cursor-pointer border-r border-gray-200 px-4 py-2",
                           focusedCell?.rowIndex === virtualRow.index &&
                             focusedCell?.columnIndex === columnIndex &&
                             "bg-blue-50",
                           isEditing && "p-0", // Remove padding when editing
                         )}
                         style={{ width: column.width ?? 200 }}
-                        onClick={() =>
-                          setFocusedCell({
-                            rowIndex: virtualRow.index,
-                            columnIndex,
-                          })
-                        }
+                        onClick={() => {
+                          if (
+                            focusedCell?.rowIndex === virtualRow.index &&
+                            focusedCell?.columnIndex === columnIndex
+                          ) {
+                            setEditingCell({
+                              rowIndex: virtualRow.index,
+                              columnIndex,
+                              value: String(cellValue ?? ""),
+                              originalValue: cellValue ?? null,
+                            });
+                          } else {
+                            setFocusedCell({
+                              rowIndex: virtualRow.index,
+                              columnIndex,
+                            });
+                          }
+                        }}
                         onDoubleClick={() => {
                           setEditingCell({
                             rowIndex: virtualRow.index,
@@ -264,10 +276,24 @@ export function TableView({
                             originalValue: cellValue ?? null,
                           });
                         }}
+                        onKeyDown={(e) => {
+                          if (
+                            focusedCell?.rowIndex === virtualRow.index &&
+                            focusedCell?.columnIndex === columnIndex &&
+                            (e.key === "Enter" || e.key === "F2")
+                          ) {
+                            setEditingCell({
+                              rowIndex: virtualRow.index,
+                              columnIndex,
+                              value: String(cellValue ?? ""),
+                              originalValue: cellValue ?? null,
+                            });
+                            e.preventDefault();
+                          }
+                        }}
                       >
                         {isEditing ? (
-                          <input
-                            type={column.type === "number" ? "number" : "text"}
+                          <CellInput
                             value={editingCell.value}
                             onChange={(e) =>
                               setEditingCell({
@@ -312,10 +338,80 @@ export function TableView({
                                 e.currentTarget.blur(); // Trigger onBlur
                               } else if (e.key === "Escape") {
                                 setEditingCell(null); // Cancel editing
+                              } else if (e.key === "Tab") {
+                                e.preventDefault();
+                                // 保存当前 cell
+                                const newValue =
+                                  column.type === "number" &&
+                                  editingCell.value !== ""
+                                    ? Number(editingCell.value)
+                                    : editingCell.value || null;
+                                const originalValue = editingCell.originalValue;
+                                let hasChanged = false;
+                                if (
+                                  originalValue === null &&
+                                  newValue === null
+                                ) {
+                                  hasChanged = false;
+                                } else if (
+                                  originalValue === null ||
+                                  newValue === null
+                                ) {
+                                  hasChanged = true;
+                                } else if (column.type === "number") {
+                                  hasChanged =
+                                    Number(originalValue) !== Number(newValue);
+                                } else {
+                                  hasChanged =
+                                    String(originalValue) !== String(newValue);
+                                }
+                                if (hasChanged) {
+                                  onUpdateCell(row.id, column.id, newValue);
+                                }
+                                // 计算下一个 cell
+                                let nextRow = virtualRow.index;
+                                let nextCol =
+                                  columnIndex + (e.shiftKey ? -1 : 1);
+                                if (nextCol < 0) {
+                                  nextRow = virtualRow.index - 1;
+                                  nextCol = columns.length - 1;
+                                } else if (nextCol >= columns.length) {
+                                  nextRow = virtualRow.index + 1;
+                                  nextCol = 0;
+                                }
+                                setEditingCell(null);
+                                // 跳转到下一个 cell 并进入编辑
+                                setTimeout(() => {
+                                  if (
+                                    nextRow >= 0 &&
+                                    nextRow < rows.length &&
+                                    nextCol >= 0 &&
+                                    nextCol < columns.length &&
+                                    rows[nextRow] &&
+                                    columns[nextCol]
+                                  ) {
+                                    setFocusedCell({
+                                      rowIndex: nextRow,
+                                      columnIndex: nextCol,
+                                    });
+                                    setEditingCell({
+                                      rowIndex: nextRow,
+                                      columnIndex: nextCol,
+                                      value: String(
+                                        rows[nextRow]?.[
+                                          columns[nextCol]?.id ?? ""
+                                        ] ?? "",
+                                      ),
+                                      originalValue:
+                                        rows[nextRow]?.[
+                                          columns[nextCol]?.id ?? ""
+                                        ] ?? null,
+                                    });
+                                  }
+                                }, 0);
                               }
                             }}
-                            className="h-full w-full border-0 bg-white px-4 py-2 outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset"
-                            autoFocus
+                            type={column.type === "number" ? "number" : "text"}
                           />
                         ) : (
                           <span className="block truncate">
@@ -357,3 +453,36 @@ export function TableView({
 // Wrap with React.memo to prevent unnecessary re-renders
 const MemoizedTableView = React.memo(TableView);
 export { MemoizedTableView };
+
+// 在 TableView 组件外部定义 CellInput
+function CellInput({
+  value,
+  onChange,
+  onBlur,
+  onKeyDown,
+  type,
+}: {
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onBlur: () => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  type: string;
+}) {
+  const localInputRef = React.useRef<HTMLInputElement>(null);
+  React.useEffect(() => {
+    if (localInputRef.current) {
+      localInputRef.current.focus();
+    }
+  }, []);
+  return (
+    <input
+      ref={localInputRef}
+      type={type}
+      value={value}
+      onChange={onChange}
+      onBlur={onBlur}
+      onKeyDown={onKeyDown}
+      className="h-full w-full border-0 bg-white px-4 py-2 outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset"
+    />
+  );
+}

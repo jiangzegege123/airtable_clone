@@ -121,33 +121,51 @@ export const tableRouter = createTRPCRouter({
       );
 
       // Generate corresponding cell values for each record
-      const cellValuesData = records.flatMap((record) => [
-        {
-          recordId: record.id,
-          fieldId: nameField.id,
-          value: faker.person.fullName(),
-        },
-        {
-          recordId: record.id,
-          fieldId: emailField.id,
-          value: faker.internet.email(),
-        },
-        {
-          recordId: record.id,
-          fieldId: phoneField.id,
-          value: faker.phone.number(),
-        },
-        {
-          recordId: record.id,
-          fieldId: addressField.id,
-          value: faker.location.streetAddress(),
-        },
-        {
-          recordId: record.id,
-          fieldId: ageField.id,
-          value: String(faker.number.int({ min: 18, max: 80 })),
-        },
-      ]);
+      const cellValuesData = records.flatMap((record) => {
+        const arr = [
+          {
+            recordId: record.id,
+            fieldId: nameField.id,
+            value: faker.person.fullName() ?? Prisma.JsonNull,
+          },
+          {
+            recordId: record.id,
+            fieldId: emailField.id,
+            value: faker.internet.email() ?? Prisma.JsonNull,
+          },
+          {
+            recordId: record.id,
+            fieldId: phoneField.id,
+            value: faker.phone.number() ?? Prisma.JsonNull,
+          },
+          {
+            recordId: record.id,
+            fieldId: addressField.id,
+            value: faker.location.streetAddress() ?? Prisma.JsonNull,
+          },
+          {
+            recordId: record.id,
+            fieldId: ageField.id,
+            value:
+              typeof faker.number.int === "function"
+                ? faker.number.int({ min: 18, max: 80 })
+                : Prisma.JsonNull,
+          },
+        ];
+        // 防御性处理，确保 value 只可能是 string/number/Prisma.JsonNull
+        return arr.map((cell) => {
+          let v = cell.value;
+          if (v === undefined || v === null) v = Prisma.JsonNull;
+          if (
+            typeof v !== "string" &&
+            typeof v !== "number" &&
+            v !== Prisma.JsonNull
+          )
+            v = Prisma.JsonNull;
+          if (v !== Prisma.JsonNull) v = JSON.stringify(v);
+          return { ...cell, value: v };
+        });
+      });
 
       await ctx.db.cellValue.createMany({
         data: cellValuesData,
@@ -225,121 +243,10 @@ export const tableRouter = createTRPCRouter({
 
       // Add cursor condition for pagination
       if (input.cursor) {
-        whereClause.id = {
-          lt: input.cursor,
+        // 用 createdAt 做 cursor，传递 ISO 字符串
+        whereClause.createdAt = {
+          gt: new Date(input.cursor),
         };
-      }
-
-      // Add search condition if search term exists
-      if (input.searchTerm?.trim()) {
-        whereClause.cellValues = {
-          some: {
-            value: {
-              contains: input.searchTerm.trim(),
-              mode: "insensitive",
-            },
-          },
-        };
-      }
-
-      // Add view filters
-      if (view?.filters && view.filters.length > 0) {
-        const filterConditions = view.filters.map(
-          (filter): Prisma.RecordWhereInput => {
-            if (filter.operator === "isEmpty") {
-              return {
-                cellValues: {
-                  none: {
-                    fieldId: filter.fieldId,
-                  },
-                },
-              };
-            }
-
-            if (filter.operator === "isNotEmpty") {
-              return {
-                cellValues: {
-                  some: {
-                    fieldId: filter.fieldId,
-                  },
-                },
-              };
-            }
-
-            const value = filter.value ?? "";
-            if (
-              !value &&
-              filter.operator !== "isEmpty" &&
-              filter.operator !== "isNotEmpty"
-            ) {
-              return { id: { not: "" } }; // Always true condition
-            }
-
-            switch (filter.operator) {
-              case "contains":
-                return {
-                  cellValues: {
-                    some: {
-                      fieldId: filter.fieldId,
-                      value: {
-                        contains: value,
-                        mode: "insensitive",
-                      },
-                    },
-                  },
-                };
-              case "notContains":
-                return {
-                  NOT: {
-                    cellValues: {
-                      some: {
-                        fieldId: filter.fieldId,
-                        value: {
-                          contains: value,
-                          mode: "insensitive",
-                        },
-                      },
-                    },
-                  },
-                };
-              case "equals":
-                return {
-                  cellValues: {
-                    some: {
-                      fieldId: filter.fieldId,
-                      value: value,
-                    },
-                  },
-                };
-              case "greaterThan":
-                return {
-                  cellValues: {
-                    some: {
-                      fieldId: filter.fieldId,
-                      value: {
-                        gt: value,
-                      },
-                    },
-                  },
-                };
-              case "lessThan":
-                return {
-                  cellValues: {
-                    some: {
-                      fieldId: filter.fieldId,
-                      value: {
-                        lt: value,
-                      },
-                    },
-                  },
-                };
-              default:
-                return { id: { not: "" } }; // Always true condition
-            }
-          },
-        );
-
-        whereClause.AND = filterConditions;
       }
 
       // Get records with proper sorting and cursor-based pagination
@@ -358,17 +265,17 @@ export const tableRouter = createTRPCRouter({
             // Handle both text and number types appropriately
             if (field.type === "number") {
               return `(
-                SELECT COALESCE(CAST(cv."value" AS NUMERIC), 0) 
-                FROM "CellValue" cv 
-                WHERE cv."recordId" = r."id" 
+                SELECT COALESCE((cv."value"::jsonb)::numeric, 0)
+                FROM "CellValue" cv
+                WHERE cv."recordId" = r."id"
                 AND cv."fieldId" = '${sort.fieldId}'
                 LIMIT 1
               ) ${sort.direction.toUpperCase()}`;
             } else {
               return `(
-                SELECT COALESCE(cv."value", '') 
-                FROM "CellValue" cv 
-                WHERE cv."recordId" = r."id" 
+                SELECT COALESCE(cv."value"->>'' , '')
+                FROM "CellValue" cv
+                WHERE cv."recordId" = r."id"
                 AND cv."fieldId" = '${sort.fieldId}'
                 LIMIT 1
               ) ${sort.direction.toUpperCase()}`;
@@ -380,18 +287,6 @@ export const tableRouter = createTRPCRouter({
         if (sortClauses) {
           // Build WHERE clause for cursor pagination and filters
           const conditions: string[] = [`r."tableId" = '${input.id}'`];
-
-          // 加入 searchTerm 条件
-          if (input.searchTerm?.trim()) {
-            const safeTerm = input.searchTerm.trim().replace(/'/g, "''");
-            conditions.push(`
-              EXISTS (
-                SELECT 1 FROM "CellValue" cv
-                WHERE cv."recordId" = r."id"
-                AND cv."value" ILIKE '%${safeTerm}%'
-              )
-            `);
-          }
 
           // For cursor pagination with custom sorting, we need to use offset instead of cursor
           // This is because cursor-based pagination with complex sorting is very difficult to implement correctly
@@ -473,6 +368,17 @@ export const tableRouter = createTRPCRouter({
             }
           }
 
+          if (input.searchTerm?.trim()) {
+            const safeTerm = input.searchTerm.trim().replace(/'/g, "''");
+            conditions.push(`
+              EXISTS (
+                SELECT 1 FROM "CellValue" cv
+                WHERE cv."recordId" = r."id"
+                AND cv."value"::text ILIKE '%${safeTerm}%'
+              )
+            `);
+          }
+
           const whereClause = conditions.join(" AND ");
 
           // Execute raw SQL query with offset-based pagination for sorting
@@ -510,6 +416,20 @@ export const tableRouter = createTRPCRouter({
             const nextOffset = offset + input.limit;
             nextCursor = nextOffset.toString();
           }
+
+          // 手动在 rows 里做 searchTerm 过滤
+          if (input.searchTerm?.trim()) {
+            const term = input.searchTerm.trim().toLowerCase();
+            records = records.filter((r) =>
+              r.cellValues.some((cv) =>
+                typeof cv.value === "string"
+                  ? cv.value.toLowerCase().includes(term)
+                  : typeof cv.value === "number"
+                    ? String(cv.value).includes(term)
+                    : false,
+              ),
+            );
+          }
         } else {
           // Fallback to createdAt if no valid sorts
           records = await ctx.db.record.findMany({
@@ -524,7 +444,21 @@ export const tableRouter = createTRPCRouter({
           // Use normal cursor pagination for createdAt sorting
           if (records.length > input.limit) {
             const nextItem = records.pop(); // Remove the extra item
-            nextCursor = nextItem?.id;
+            nextCursor = nextItem?.createdAt?.toISOString();
+          }
+
+          // 手动在 rows 里做 searchTerm 过滤
+          if (input.searchTerm?.trim()) {
+            const term = input.searchTerm.trim().toLowerCase();
+            records = records.filter((r) =>
+              r.cellValues.some((cv) =>
+                typeof cv.value === "string"
+                  ? cv.value.toLowerCase().includes(term)
+                  : typeof cv.value === "number"
+                    ? String(cv.value).includes(term)
+                    : false,
+              ),
+            );
           }
         }
       } else {
@@ -541,7 +475,21 @@ export const tableRouter = createTRPCRouter({
         // Use normal cursor pagination for createdAt sorting
         if (records.length > input.limit) {
           const nextItem = records.pop(); // Remove the extra item
-          nextCursor = nextItem?.id;
+          nextCursor = nextItem?.createdAt?.toISOString();
+        }
+
+        // 手动在 rows 里做 searchTerm 过滤
+        if (input.searchTerm?.trim()) {
+          const term = input.searchTerm.trim().toLowerCase();
+          records = records.filter((r) =>
+            r.cellValues.some((cv) =>
+              typeof cv.value === "string"
+                ? cv.value.toLowerCase().includes(term)
+                : typeof cv.value === "number"
+                  ? String(cv.value).includes(term)
+                  : false,
+            ),
+          );
         }
       }
 
@@ -566,7 +514,15 @@ export const tableRouter = createTRPCRouter({
           const cellValue = record.cellValues.find(
             (cv: CellValue) => cv.fieldId === column.fieldId,
           );
-          row[column.id] = cellValue?.value ?? null;
+          let v = cellValue?.value;
+          if (typeof v === "object" && v !== null) {
+            v = JSON.stringify(v);
+          } else if (typeof v === "boolean") {
+            v = v ? 1 : 0;
+          } else if (v === null || v === undefined) {
+            v = null;
+          }
+          row[column.id] = v as string | number | null;
         });
 
         return row;
@@ -632,7 +588,6 @@ export const tableRouter = createTRPCRouter({
         });
       }
 
-      // 分步删除，避免长事务超时
       // Step 1: Delete all cell values
       await ctx.db.cellValue.deleteMany({
         where: {
@@ -687,7 +642,6 @@ export const tableRouter = createTRPCRouter({
       // Step 7: Delete the table itself
       await ctx.db.table.delete({ where: { id: input.id } });
 
-      // 返回 deleting 字段，前端可用来显示"正在删除"
       return { success: true, deleting: true };
     }),
 
@@ -759,12 +713,12 @@ export const tableRouter = createTRPCRouter({
           },
         },
         update: {
-          value: input.value === null ? null : String(input.value),
+          value: input.value ?? Prisma.JsonNull,
         },
         create: {
           recordId: input.recordId,
           fieldId: field.id,
-          value: input.value === null ? null : String(input.value),
+          value: input.value ?? Prisma.JsonNull,
         },
       });
 
@@ -823,9 +777,7 @@ export const tableRouter = createTRPCRouter({
       // Create cell values for each record (using faker to generate fake data)
       if (records.length > 0) {
         const cellValuesData = records.map((record) => {
-          let value = null;
-
-          // Generate fake data based on field type
+          let value: string | number | typeof Prisma.JsonNull;
           if (input.type === "text") {
             value = faker.lorem.word();
           } else if (input.type === "email") {
@@ -833,21 +785,26 @@ export const tableRouter = createTRPCRouter({
           } else if (input.type === "phone") {
             value = faker.phone.number();
           } else if (input.type === "number") {
-            value = String(faker.number.int(100));
+            value = faker.number.int(100);
           } else {
-            value = faker.lorem.word();
+            value = Prisma.JsonNull;
           }
-
           return {
             recordId: record.id,
             fieldId: newField.id,
-            value: value,
+            value,
           };
         });
 
         // Batch create cell values
         await ctx.db.cellValue.createMany({
-          data: cellValuesData,
+          data: cellValuesData.map((cell) => ({
+            ...cell,
+            value:
+              cell.value === Prisma.JsonNull
+                ? Prisma.JsonNull
+                : JSON.stringify(cell.value),
+          })),
         });
       }
 
@@ -897,9 +854,7 @@ export const tableRouter = createTRPCRouter({
       // Create cell values for each field (using faker to generate fake data)
       if (table.fields.length > 0) {
         const cellValuesData = table.fields.map((field) => {
-          let value = null;
-
-          // Generate appropriate fake data based on field name and type
+          let value: string | number | typeof Prisma.JsonNull;
           if (field.name.toLowerCase() === "name") {
             value = faker.person.fullName();
           } else if (field.name.toLowerCase() === "email") {
@@ -909,23 +864,30 @@ export const tableRouter = createTRPCRouter({
           } else if (field.name.toLowerCase() === "address") {
             value = faker.location.streetAddress();
           } else if (field.name.toLowerCase() === "age") {
-            value = String(faker.number.int({ min: 18, max: 80 }));
+            value = faker.number.int({ min: 18, max: 80 });
           } else if (field.type === "text") {
             value = faker.lorem.word();
           } else if (field.type === "number") {
-            value = String(faker.number.int(100));
+            value = faker.number.int(100);
+          } else {
+            value = Prisma.JsonNull;
           }
-
           return {
             recordId: newRecord.id,
             fieldId: field.id,
-            value: value,
+            value,
           };
         });
 
         // Batch create cell values
         await ctx.db.cellValue.createMany({
-          data: cellValuesData,
+          data: cellValuesData.map((cell) => ({
+            ...cell,
+            value:
+              cell.value === Prisma.JsonNull
+                ? Prisma.JsonNull
+                : JSON.stringify(cell.value),
+          })),
         });
       }
 
@@ -979,10 +941,19 @@ export const tableRouter = createTRPCRouter({
         // 1. 生成 uuid
         const uuids = Array.from({ length: recordsToCreate }, () => uuidv4());
 
+        // 检查 uuid 是否重复或非法
+        const uuidSet = new Set(uuids);
+        if (uuidSet.size !== uuids.length) {
+          throw new Error("Duplicate UUIDs generated in batch!");
+        }
+        if (uuids.some((id) => !id || typeof id !== "string")) {
+          throw new Error("Invalid UUID generated in batch!");
+        }
+
         // 2. 生成 cell values
         const cellValuesData = uuids.flatMap((id) =>
           table.fields.map((field) => {
-            let value = null;
+            let value: string | number | typeof Prisma.JsonNull;
             if (field.name.toLowerCase() === "name") {
               value = faker.person.fullName();
             } else if (field.name.toLowerCase() === "email") {
@@ -992,11 +963,13 @@ export const tableRouter = createTRPCRouter({
             } else if (field.name.toLowerCase() === "address") {
               value = faker.location.streetAddress();
             } else if (field.name.toLowerCase() === "age") {
-              value = String(faker.number.int({ min: 18, max: 80 }));
+              value = faker.number.int({ min: 18, max: 80 });
             } else if (field.type === "text") {
               value = faker.lorem.word();
             } else if (field.type === "number") {
-              value = String(faker.number.int(100));
+              value = faker.number.int(100);
+            } else {
+              value = Prisma.JsonNull;
             }
             return {
               recordId: id,
@@ -1007,17 +980,28 @@ export const tableRouter = createTRPCRouter({
         );
 
         // 3. 用事务批量插入 record 和 cellValue
-        await ctx.db.$transaction([
-          ctx.db.record.createMany({
-            data: uuids.map((id) => ({
-              id,
-              tableId: input.tableId,
-            })),
-          }),
-          ctx.db.cellValue.createMany({
-            data: cellValuesData,
-          }),
-        ]);
+        try {
+          await ctx.db.$transaction([
+            ctx.db.record.createMany({
+              data: uuids.map((id) => ({
+                id,
+                tableId: input.tableId,
+              })),
+            }),
+            ctx.db.cellValue.createMany({
+              data: cellValuesData.map((cv) => ({
+                ...cv,
+                value:
+                  cv.value === Prisma.JsonNull
+                    ? Prisma.JsonNull
+                    : JSON.stringify(cv.value),
+              })),
+            }),
+          ]);
+        } catch (err) {
+          console.error("Batch insert error:", err);
+          throw err;
+        }
       }
 
       return {

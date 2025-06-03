@@ -93,7 +93,7 @@ export function ViewList({
               }`}
             >
               <button
-                className={`flex items-center gap-2 text-left text-sm ${
+                className={`flex cursor-pointer items-center gap-2 text-left text-sm ${
                   isActive ? "font-medium" : ""
                 }`}
                 onClick={() => onViewSelect(view.id)}

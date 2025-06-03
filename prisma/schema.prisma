@@ -143,7 +143,7 @@ model VerificationToken {
 
 model CellValue {
   id       String  @id @default(cuid())
-  value    String?
+  value    Json?
   recordId String
   fieldId  String
   
